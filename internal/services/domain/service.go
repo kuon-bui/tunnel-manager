@@ -57,8 +57,9 @@ type DomainServiceParams struct {
 
 func NewDomainService(
 	params DomainServiceParams,
+	processSupervisor process.ProcessSupervisor,
 ) DomainService {
-	return &domainService{
+	service := &domainService{
 		repo:   params.Repo,
 		cf:     params.CF,
 		sup:    params.Supervisor,
@@ -67,6 +68,8 @@ func NewDomainService(
 		logDir: params.Cfg.LogDir,
 		logs:   make(map[string]*logbuf.Buffer),
 	}
+	processSupervisor.SetEventHandler(service.HandleSupervisorEvent)
+	return service
 }
 
 func (s *domainService) Logs(ctx context.Context, id string) ([]string, error) {
@@ -105,8 +108,7 @@ func (s *domainService) Reconcile(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	for i := range active {
-		domain := &active[i]
+	for _, domain := range active {
 		plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
 		if err != nil {
 			domain.Status = model.StatusError

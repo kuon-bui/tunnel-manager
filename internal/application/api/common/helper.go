@@ -13,5 +13,5 @@ func WriteGetErr(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
 	}
-	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }
