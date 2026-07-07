@@ -1,0 +1,8 @@
+# Secrets and runtime state — never commit
+data/*
+
+# Local git worktrees
+.worktrees/
+
+# Local env for backend workflows
+.env

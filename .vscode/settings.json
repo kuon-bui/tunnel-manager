@@ -1,0 +1,21 @@
+{
+  "cSpell.words": [
+    "appconfig",
+    "cfargotunnel",
+    "cloudflareadapter",
+    "cloudflareapi",
+    "Cloudflared",
+    "gonic",
+    "httpinterface",
+    "logbuf",
+    "modernc",
+    "persistencesqlite",
+    "portalloc",
+    "processadapter",
+    "procs",
+    "sqldb",
+    "sqlitedialect",
+    "stdhttp",
+    "tunnelmanager"
+  ]
+}
