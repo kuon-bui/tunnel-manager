@@ -1,0 +1,23 @@
+package domainrepo
+
+import (
+	"context"
+	"tunnelmanager/internal/model"
+)
+
+func (r *Repository) Update(ctx context.Context, domain *model.Domain) error {
+	result, err := r.db.NewUpdate().Model(domain).WherePK().Exec(ctx)
+	if err != nil {
+		return err
+	}
+
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return model.ErrNotFound
+	}
+
+	return nil
+}

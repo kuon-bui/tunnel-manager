@@ -1,18 +1,22 @@
-// backend/cmd/server/main.go
+// cmd/server/main.go
 package main
 
 import (
-	"log"
-
 	"go.uber.org/fx"
 
-	"tunnelmanager/internal/module"
+	"tunnelmanager/internal/application"
+	"tunnelmanager/internal/application/api"
+	"tunnelmanager/pkg/logger"
 )
 
 func main() {
-	app := fx.New(module.App)
+	app := fx.New(
+		application.Module,
+		api.Module,
+	)
 	if err := app.Err(); err != nil {
-		log.Fatalf("app: %v", err)
+		logger.Fatalf("app: %s", err)
 	}
+
 	app.Run()
 }

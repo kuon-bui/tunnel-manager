@@ -111,7 +111,7 @@ Table `domains`:
 | Column               | Type      | Notes                                                   |
 |----------------------|-----------|----------------------------------------------------------|
 | id                   | TEXT (PK) | UUID                                                     |
-| hostname             | TEXT      | unique, e.g. `n8n.kuon.id.vn`                            |
+| hostname             | TEXT      | unique, e.g. `n8n.example.com`                            |
 | origin_url           | TEXT      | e.g. `http://n8n:5678`                                   |
 | cloudflare_tunnel_id | TEXT      | from Cloudflare API                                      |
 | tunnel_token         | BLOB      | AES-GCM encrypted                                        |
