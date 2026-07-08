@@ -11,6 +11,7 @@ import (
 	"tunnelmanager/internal/pkg/cloudflare"
 	"tunnelmanager/internal/pkg/common"
 	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/crypto"
 	"tunnelmanager/internal/pkg/logbuf"
 	"tunnelmanager/internal/pkg/portalloc"
@@ -109,7 +110,7 @@ func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.Resp
 func (s *domainService) Reconcile(ctx context.Context) error {
 	active, _, err := s.repo.List(ctx, domainrequest.ListDomainRequest{
 		Pagination: common.Pagination{PageSize: -1},
-		Status:     model.StatusActive,
+		Status:     constant.StatusActive,
 	})
 	if err != nil {
 		return err
@@ -120,13 +121,13 @@ func (s *domainService) Reconcile(ctx context.Context) error {
 		p.Go(func() *model.Domain {
 			plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
 			if err != nil {
-				domain.Status = model.StatusError
+				domain.Status = constant.StatusError
 				domain.LastError = fmt.Sprintf("reconcile: decrypt token: %v", err)
 				return domain
 			}
 
 			if err := s.spawn(domain, plaintext); err != nil {
-				domain.Status = model.StatusError
+				domain.Status = constant.StatusError
 				domain.LastError = err.Error()
 				return domain
 			}

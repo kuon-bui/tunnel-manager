@@ -7,8 +7,8 @@ import (
 	"syscall"
 	"time"
 
-	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/constant"
 )
 
 func NewSupervisor(cfg config.Config) ProcessSupervisor {
@@ -59,12 +59,12 @@ func (s *Supervisor) Start(domainID, token string, metricsPort int, logWriter io
 		s.mu.Lock()
 		delete(s.procs, domainID)
 		s.mu.Unlock()
-		s.emit(Event{DomainID: domainID, Status: model.StatusStopped})
+		s.emit(Event{DomainID: domainID, Status: constant.StatusStopped})
 		return nil
 	}
 
 	s.armStableTimer(mp)
-	s.emit(Event{DomainID: domainID, PID: cmd.Process.Pid, Status: model.StatusActive})
+	s.emit(Event{DomainID: domainID, PID: cmd.Process.Pid, Status: constant.StatusActive})
 
 	go s.supervise(domainID, token, metricsPort, logWriter, mp)
 	return nil

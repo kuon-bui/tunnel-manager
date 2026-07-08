@@ -5,7 +5,7 @@ import (
 	"tunnelmanager/internal/model"
 )
 
-func (r *Repository) Update(ctx context.Context, domain *model.Domain) error {
+func (r *domainRepository) Update(ctx context.Context, domain *model.Domain) error {
 	result, err := r.db.NewUpdate().Model(domain).WherePK().Exec(ctx)
 	if err != nil {
 		return err
@@ -22,7 +22,7 @@ func (r *Repository) Update(ctx context.Context, domain *model.Domain) error {
 	return nil
 }
 
-func (r *Repository) UpdateBulk(ctx context.Context, domains []*model.Domain) error {
+func (r *domainRepository) UpdateBulk(ctx context.Context, domains []*model.Domain) error {
 	if len(domains) == 0 {
 		return nil
 	}

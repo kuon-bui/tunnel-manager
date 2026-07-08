@@ -5,7 +5,7 @@ import (
 	"io"
 	"os/exec"
 	"time"
-	"tunnelmanager/internal/model"
+	"tunnelmanager/internal/pkg/constant"
 )
 
 // buildCmd constructs the command to run cloudflared with the given parameters.
@@ -57,7 +57,7 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 			s.mu.Lock()
 			delete(s.procs, domainID)
 			s.mu.Unlock()
-			s.emit(Event{DomainID: domainID, Status: model.StatusStopped})
+			s.emit(Event{DomainID: domainID, Status: constant.StatusStopped})
 			return
 		}
 
@@ -70,7 +70,7 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 			s.mu.Lock()
 			delete(s.procs, domainID)
 			s.mu.Unlock()
-			s.emit(Event{DomainID: domainID, Status: model.StatusError, RestartCount: maxRestartAttempts, Err: waitErr})
+			s.emit(Event{DomainID: domainID, Status: constant.StatusError, RestartCount: maxRestartAttempts, Err: waitErr})
 			return
 		}
 
@@ -86,7 +86,7 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 		mp.cmd = cmd
 		mp.mu.Unlock()
 		s.armStableTimer(mp)
-		s.emit(Event{DomainID: domainID, PID: cmd.Process.Pid, Status: model.StatusActive, RestartCount: attempt})
+		s.emit(Event{DomainID: domainID, PID: cmd.Process.Pid, Status: constant.StatusActive, RestartCount: attempt})
 	}
 }
 

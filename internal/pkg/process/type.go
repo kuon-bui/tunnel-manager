@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"sync"
 	"time"
-	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/constant"
 )
 
@@ -36,7 +35,7 @@ type Supervisor struct {
 type ProcessEvent struct {
 	DomainID     string
 	PID          int
-	Status       model.Status
+	Status       constant.DomainStatus
 	RestartCount int
 	Err          error
 }

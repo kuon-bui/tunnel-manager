@@ -1,13 +1,13 @@
 package domainrequest
 
 import (
-	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/common"
+	"tunnelmanager/internal/pkg/constant"
 )
 
 type ListDomainRequest struct {
 	common.Pagination
 
-	Status   model.Status `form:"status"`
-	Hostname string       `form:"hostname"`
+	Status   constant.DomainStatus `form:"status"`
+	Hostname string                `form:"hostname"`
 }

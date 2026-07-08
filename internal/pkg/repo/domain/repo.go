@@ -19,10 +19,10 @@ type DomainRepository interface {
 	ListTakenPorts(ctx context.Context) (map[int]bool, error)
 }
 
-type Repository struct {
+type domainRepository struct {
 	db *bun.DB
 }
 
 func NewRepository(db *bun.DB) DomainRepository {
-	return &Repository{db: db}
+	return &domainRepository{db: db}
 }

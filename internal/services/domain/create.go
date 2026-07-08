@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 	"tunnelmanager/internal/model"
+	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/crypto"
 	"tunnelmanager/internal/pkg/logbuf"
 
@@ -70,7 +71,7 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		CloudflareTunnelID:   tunnel.TunnelID,
 		DNSRecordID:          dnsRecordID,
 		EncryptedTunnelToken: encToken,
-		Status:               model.StatusPending,
+		Status:               constant.StatusPending,
 		MetricsPort:          port,
 		CreatedAt:            now,
 		UpdatedAt:            now,
@@ -80,7 +81,7 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 	}
 
 	if err := s.spawn(domain, tunnel.Token); err != nil {
-		domain.Status = model.StatusError
+		domain.Status = constant.StatusError
 		domain.LastError = err.Error()
 		_ = s.repo.Update(ctx, domain)
 		return domain, nil

@@ -7,7 +7,7 @@ import (
 	domainrequest "tunnelmanager/internal/pkg/request/domain"
 )
 
-func (r *Repository) List(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error) {
+func (r *domainRepository) List(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error) {
 	var domains []*model.Domain
 	q := r.db.NewSelect().Model(&domains)
 
@@ -38,7 +38,7 @@ func (r *Repository) List(ctx context.Context, req domainrequest.ListDomainReque
 	return domains, nextCursor, nil
 }
 
-func (r *Repository) ListTakenPorts(ctx context.Context) (map[int]bool, error) {
+func (r *domainRepository) ListTakenPorts(ctx context.Context) (map[int]bool, error) {
 	var ports []int
 	if err := r.db.NewSelect().Model((*model.Domain)(nil)).Column("metrics_port").Scan(ctx, &ports); err != nil {
 		return nil, err
