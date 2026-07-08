@@ -18,33 +18,40 @@ type Reconciler interface {
 	Reconcile(ctx context.Context) error
 }
 
+type Bootstrapper interface {
+	Bootstrap(ctx context.Context) error
+}
+
 type LifecycleRunner struct {
-	cfg         appconfig.Config
-	service     Reconciler
-	server      *stdhttp.Server
-	mkdirAll    func(string, os.FileMode) error
-	chmod       func(string, os.FileMode) error
-	startServer func(*stdhttp.Server) error
-	routes      []common.Route `group:"routes"`
+	cfg           appconfig.Config
+	service       Reconciler
+	bootstrappers []Bootstrapper `group:"bootstrappers"`
+	server        *stdhttp.Server
+	mkdirAll      func(string, os.FileMode) error
+	chmod         func(string, os.FileMode) error
+	startServer   func(*stdhttp.Server) error
+	routes        []common.Route `group:"routes"`
 }
 
 type LifecycleParams struct {
 	fx.In
 
-	Cfg     appconfig.Config
-	Service Reconciler
-	Server  *stdhttp.Server
-	Routes  []common.Route `group:"routes"`
+	Cfg           appconfig.Config
+	Service       Reconciler
+	Bootstrappers []Bootstrapper `group:"bootstrappers"`
+	Server        *stdhttp.Server
+	Routes        []common.Route `group:"routes"`
 }
 
 func NewLifecycleRunner(params LifecycleParams) *LifecycleRunner {
 	return &LifecycleRunner{
-		cfg:      params.Cfg,
-		service:  params.Service,
-		server:   params.Server,
-		routes:   params.Routes,
-		mkdirAll: os.MkdirAll,
-		chmod:    os.Chmod,
+		cfg:           params.Cfg,
+		service:       params.Service,
+		bootstrappers: params.Bootstrappers,
+		server:        params.Server,
+		routes:        params.Routes,
+		mkdirAll:      os.MkdirAll,
+		chmod:         os.Chmod,
 		startServer: func(server *stdhttp.Server) error {
 			listener, err := net.Listen("tcp", server.Addr)
 			if err != nil {
@@ -63,6 +70,12 @@ func NewLifecycleRunner(params LifecycleParams) *LifecycleRunner {
 func (r *LifecycleRunner) Register(lc fx.Lifecycle) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
+			for _, b := range r.bootstrappers {
+				if err := b.Bootstrap(ctx); err != nil {
+					return err
+				}
+			}
+
 			if err := r.mkdirAll(r.cfg.LogDir, 0o755); err != nil {
 				return err
 			}

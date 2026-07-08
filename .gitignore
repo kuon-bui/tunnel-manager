@@ -4,5 +4,9 @@ data/*
 # Local git worktrees
 .worktrees/
 
+# Subagent-driven-development scratch (task briefs, reports, review diffs —
+# may contain locally-generated secrets, never committed)
+.superpowers/
+
 # Local env for backend workflows
 .env

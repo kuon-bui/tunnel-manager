@@ -80,6 +80,10 @@ openssl rand -hex 32
 | `METRICS_PORT_RANGE_END` | Yes | End of the local metrics port range. Must be greater than `METRICS_PORT_RANGE_START`. |
 | `CLOUDFLARED_BINARY` | Yes | Path or command name for the `cloudflared` executable. |
 | `CLOUDFLARED_PROTOCOL` | Yes | Transport protocol passed to `cloudflared`. Allowed values: `http2`, `quic`. |
+| `ADMIN_USERNAME` | Yes | Username for the seeded admin account created on startup. |
+| `ADMIN_PASSWORD` | Yes | Password for the seeded admin account. Changing this and restarting rotates the login password. |
+| `JWT_SECRET` | Yes | Hex-encoded key used to sign JWTs. Must decode to at least 32 bytes. |
+| `JWT_TTL` | No | Access token lifetime, parsed as a Go duration (for example `168h`). Defaults to `168h` (7 days) when unset. |
 
 ### Example Host Configuration
 
@@ -93,6 +97,8 @@ METRICS_PORT_RANGE_START=20500
 METRICS_PORT_RANGE_END=20999
 CLOUDFLARED_BINARY=cloudflared
 CLOUDFLARED_PROTOCOL=http2
+ADMIN_USERNAME=admin
+JWT_TTL=168h
 ```
 
 For host deployments, ensure the `data/` directory exists and is writable
@@ -171,8 +177,9 @@ The service exposes these routes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT. |
 | `POST` | `/api/domains` | Create a managed domain and its Cloudflare tunnel resources. |
-| `GET` | `/api/domains` | List managed domains. Useful as a basic reachability check. |
+| `GET` | `/api/domains` | List managed domains. |
 | `GET` | `/api/domains/:id` | Fetch one managed domain. |
 | `PUT` | `/api/domains/:id` | Update the origin URL for a managed domain. |
 | `DELETE` | `/api/domains/:id` | Delete a managed domain and its Cloudflare resources. |
@@ -181,8 +188,10 @@ The service exposes these routes:
 | `GET` | `/api/domains/:id/logs` | Return buffered log lines for a managed domain. |
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
 
-There is no dedicated `/healthz` endpoint in the current codebase. For a simple
-HTTP-level check, use `GET /api/domains`.
+There is no dedicated `/healthz` endpoint in the current codebase.
+`POST /api/auth/login` is the only unauthenticated route and can be used as
+a basic reachability check. Every `/api/domains/*` route requires a valid
+`Authorization: Bearer <token>` header obtained from that login endpoint.
 
 ## Operational Notes
 
