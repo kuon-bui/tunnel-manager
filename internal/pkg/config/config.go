@@ -4,7 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"tunnelmanager/pkg/constant"
+	"tunnelmanager/internal/pkg/constant"
 
 	"github.com/spf13/viper"
 )

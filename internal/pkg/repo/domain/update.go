@@ -21,3 +21,12 @@ func (r *Repository) Update(ctx context.Context, domain *model.Domain) error {
 
 	return nil
 }
+
+func (r *Repository) UpdateBulk(ctx context.Context, domains []*model.Domain) error {
+	if len(domains) == 0 {
+		return nil
+	}
+
+	_, err := r.db.NewUpdate().Model(&domains).Bulk().Exec(ctx)
+	return err
+}

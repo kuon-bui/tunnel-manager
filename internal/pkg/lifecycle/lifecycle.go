@@ -10,8 +10,8 @@ import (
 
 	"go.uber.org/fx"
 
-	"tunnelmanager/pkg/common"
-	appconfig "tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/common"
+	appconfig "tunnelmanager/internal/pkg/config"
 )
 
 type Reconciler interface {

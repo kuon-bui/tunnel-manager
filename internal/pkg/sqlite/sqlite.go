@@ -2,7 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
-	"tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/config"
 
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"

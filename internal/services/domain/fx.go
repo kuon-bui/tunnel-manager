@@ -1,7 +1,7 @@
 package domainservice
 
 import (
-	"tunnelmanager/pkg/lifecycle"
+	"tunnelmanager/internal/pkg/lifecycle"
 
 	"go.uber.org/fx"
 )

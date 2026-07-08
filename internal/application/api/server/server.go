@@ -2,7 +2,7 @@ package server
 
 import (
 	"net/http"
-	"tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/config"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"

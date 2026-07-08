@@ -9,7 +9,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v6/option"
 	"github.com/cloudflare/cloudflare-go/v6/zero_trust"
 
-	"tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/config"
 )
 
 type client struct {

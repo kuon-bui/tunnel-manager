@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 	"tunnelmanager/internal/model"
-	"tunnelmanager/pkg/constant"
+	"tunnelmanager/internal/pkg/constant"
 )
 
 const maxRestartAttempts = 5

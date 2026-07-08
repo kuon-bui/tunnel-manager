@@ -6,25 +6,21 @@ import (
 	"path/filepath"
 	"time"
 	"tunnelmanager/internal/model"
-	"tunnelmanager/pkg/crypto"
-	"tunnelmanager/pkg/logbuf"
+	"tunnelmanager/internal/pkg/crypto"
+	"tunnelmanager/internal/pkg/logbuf"
 
 	"github.com/google/uuid"
 )
 
-func (s *domainService) takenPorts(ctx context.Context) (map[int]bool, error) {
-	domains, err := s.repo.List(ctx)
-	if err != nil {
-		return nil, err
-	}
-	taken := make(map[int]bool, len(domains))
-	for _, d := range domains {
-		taken[d.MetricsPort] = true
-	}
-	return taken, nil
-}
-
 func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL string) (domain *model.Domain, err error) {
+	revertFuncs := []func(){}
+	defer func() {
+		if err != nil {
+			for i := len(revertFuncs) - 1; i >= 0; i-- {
+				revertFuncs[i]()
+			}
+		}
+	}()
 
 	if existing, _ := s.repo.GetByHostname(ctx, hostname); existing != nil {
 		return nil, fmt.Errorf("service: hostname %q already registered", hostname)
@@ -35,11 +31,9 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		return nil, fmt.Errorf("service: create tunnel: %w", err)
 	}
 
-	defer func() {
-		if err != nil {
-			_ = s.cf.DeleteTunnel(ctx, tunnel.TunnelID)
-		}
-	}()
+	revertFuncs = append(revertFuncs, func() {
+		_ = s.cf.DeleteTunnel(ctx, tunnel.TunnelID)
+	})
 
 	if err := s.cf.PutIngressConfig(ctx, tunnel.TunnelID, hostname, originURL); err != nil {
 		return nil, fmt.Errorf("service: put ingress config: %w", err)
@@ -49,20 +43,20 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 	if err != nil {
 		return nil, fmt.Errorf("service: create dns record: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			_ = s.cf.DeleteDNSRecord(ctx, dnsRecordID)
-		}
-	}()
+	revertFuncs = append(revertFuncs, func() {
+		_ = s.cf.DeleteDNSRecord(ctx, dnsRecordID)
+	})
+
 	encToken, err := crypto.Encrypt(s.encKey, tunnel.Token)
 	if err != nil {
 		return nil, fmt.Errorf("service: encrypt token: %w", err)
 	}
 
-	taken, err := s.takenPorts(ctx)
+	taken, err := s.repo.ListTakenPorts(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("service: list taken ports: %w", err)
 	}
+
 	port, err := s.ports.Allocate(taken)
 	if err != nil {
 		return nil, fmt.Errorf("service: allocate metrics port: %w", err)

@@ -2,7 +2,7 @@ package portalloc
 
 import (
 	"fmt"
-	"tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/config"
 )
 
 type Allocator struct {

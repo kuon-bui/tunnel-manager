@@ -3,7 +3,7 @@ package domainrepo
 import (
 	"context"
 	"tunnelmanager/internal/model"
-	"tunnelmanager/pkg/repo/helpers"
+	"tunnelmanager/internal/pkg/repo/helpers"
 )
 
 func (r *Repository) Get(ctx context.Context, id string) (*model.Domain, error) {

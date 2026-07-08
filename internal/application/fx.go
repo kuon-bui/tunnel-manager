@@ -1,13 +1,13 @@
 package application
 
 import (
+	"tunnelmanager/internal/pkg/cloudflare"
+	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/portalloc"
+	"tunnelmanager/internal/pkg/process"
+	"tunnelmanager/internal/pkg/repo"
+	"tunnelmanager/internal/pkg/sqlite"
 	"tunnelmanager/internal/services"
-	"tunnelmanager/pkg/cloudflare"
-	"tunnelmanager/pkg/config"
-	"tunnelmanager/pkg/portalloc"
-	"tunnelmanager/pkg/process"
-	"tunnelmanager/pkg/repo"
-	"tunnelmanager/pkg/sqlite"
 
 	"go.uber.org/fx"
 )

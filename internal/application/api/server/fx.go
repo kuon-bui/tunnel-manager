@@ -2,8 +2,8 @@ package server
 
 import (
 	"tunnelmanager/internal/application/api/route"
-	"tunnelmanager/pkg/gin"
-	"tunnelmanager/pkg/lifecycle"
+	"tunnelmanager/internal/pkg/gin"
+	"tunnelmanager/internal/pkg/lifecycle"
 
 	"go.uber.org/fx"
 )

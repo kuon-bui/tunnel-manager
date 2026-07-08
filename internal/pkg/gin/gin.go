@@ -1,8 +1,8 @@
 package gin
 
 import (
-	"tunnelmanager/pkg/config"
-	"tunnelmanager/pkg/middleware"
+	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/middleware"
 
 	"github.com/gin-gonic/gin"
 )

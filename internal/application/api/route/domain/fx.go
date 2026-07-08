@@ -1,7 +1,7 @@
 package domainroute
 
 import (
-	"tunnelmanager/pkg/common"
+	"tunnelmanager/internal/pkg/common"
 
 	"go.uber.org/fx"
 )

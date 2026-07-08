@@ -2,7 +2,7 @@ package domainroute
 
 import (
 	"net/http"
-	domainrequest "tunnelmanager/pkg/request/domain"
+	domainrequest "tunnelmanager/internal/pkg/request/domain"
 
 	"github.com/gin-gonic/gin"
 )

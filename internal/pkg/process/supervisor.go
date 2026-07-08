@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"tunnelmanager/internal/model"
-	"tunnelmanager/pkg/config"
+	"tunnelmanager/internal/pkg/config"
 )
 
 func NewSupervisor(cfg config.Config) ProcessSupervisor {

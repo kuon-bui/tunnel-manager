@@ -6,7 +6,7 @@ import (
 
 	"tunnelmanager/internal/application"
 	"tunnelmanager/internal/application/api"
-	"tunnelmanager/pkg/logger"
+	"tunnelmanager/internal/pkg/logger"
 )
 
 func main() {

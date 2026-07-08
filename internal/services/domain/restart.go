@@ -3,7 +3,7 @@ package domainservice
 import (
 	"context"
 	"fmt"
-	"tunnelmanager/pkg/crypto"
+	"tunnelmanager/internal/pkg/crypto"
 )
 
 func (s *domainService) RestartDomain(ctx context.Context, id string) (err error) {

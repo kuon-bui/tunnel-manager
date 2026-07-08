@@ -8,20 +8,23 @@ import (
 	"sync"
 
 	"tunnelmanager/internal/model"
-	"tunnelmanager/pkg/cloudflare"
-	"tunnelmanager/pkg/config"
-	"tunnelmanager/pkg/crypto"
-	"tunnelmanager/pkg/logbuf"
-	"tunnelmanager/pkg/portalloc"
-	"tunnelmanager/pkg/process"
-	domainrepo "tunnelmanager/pkg/repo/domain"
+	"tunnelmanager/internal/pkg/cloudflare"
+	"tunnelmanager/internal/pkg/common"
+	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/crypto"
+	"tunnelmanager/internal/pkg/logbuf"
+	"tunnelmanager/internal/pkg/portalloc"
+	"tunnelmanager/internal/pkg/process"
+	domainrepo "tunnelmanager/internal/pkg/repo/domain"
+	domainrequest "tunnelmanager/internal/pkg/request/domain"
 
+	"github.com/sourcegraph/conc/pool"
 	"go.uber.org/fx"
 )
 
 type DomainService interface {
 	CreateDomain(ctx context.Context, hostname, originURL string) (*model.Domain, error)
-	ListDomains(ctx context.Context) ([]model.Domain, error)
+	ListDomains(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error)
 	GetDomain(ctx context.Context, id string) (*model.Domain, error)
 	UpdateOrigin(ctx context.Context, id, originURL string) (*model.Domain, error)
 	DeleteDomain(ctx context.Context, id string) error
@@ -104,25 +107,41 @@ func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.Resp
 }
 
 func (s *domainService) Reconcile(ctx context.Context) error {
-	active, err := s.repo.ListByStatus(ctx, model.StatusActive)
+	active, _, err := s.repo.List(ctx, domainrequest.ListDomainRequest{
+		Pagination: common.Pagination{PageSize: -1},
+		Status:     model.StatusActive,
+	})
 	if err != nil {
 		return err
 	}
+
+	p := pool.NewWithResults[*model.Domain]()
 	for _, domain := range active {
-		plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
-		if err != nil {
-			domain.Status = model.StatusError
-			domain.LastError = fmt.Sprintf("reconcile: decrypt token: %v", err)
-			_ = s.repo.Update(ctx, domain)
-			continue
-		}
-		if err := s.spawn(domain, plaintext); err != nil {
-			domain.Status = model.StatusError
-			domain.LastError = err.Error()
-			_ = s.repo.Update(ctx, domain)
+		p.Go(func() *model.Domain {
+			plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
+			if err != nil {
+				domain.Status = model.StatusError
+				domain.LastError = fmt.Sprintf("reconcile: decrypt token: %v", err)
+				return domain
+			}
+
+			if err := s.spawn(domain, plaintext); err != nil {
+				domain.Status = model.StatusError
+				domain.LastError = err.Error()
+				return domain
+			}
+			return nil
+		})
+	}
+
+	failed := make([]*model.Domain, 0, len(active))
+	for _, domain := range p.Wait() {
+		if domain != nil {
+			failed = append(failed, domain)
 		}
 	}
-	return nil
+
+	return s.repo.UpdateBulk(ctx, failed)
 }
 
 func (s *domainService) HandleSupervisorEvent(ev process.ProcessEvent) {
