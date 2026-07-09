@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/hex"
 	"fmt"
-	"strings"
 	"time"
 	"tunnelmanager/internal/pkg/constant"
 
@@ -43,7 +42,7 @@ func Load() (Config, error) {
 		MetricsPortRangeStart: v.GetInt("METRICS_PORT_RANGE_START"),
 		MetricsPortRangeEnd:   v.GetInt("METRICS_PORT_RANGE_END"),
 		CloudflaredBinary:     v.GetString("CLOUDFLARED_BINARY"),
-		CloudflaredProtocol:   constant.CloudflaredProtocol(strings.ToLower(v.GetString("CLOUDFLARED_PROTOCOL"))),
+		CloudflaredProtocol:   constant.CloudflaredProtocol(v.GetString("CLOUDFLARED_PROTOCOL")),
 		CORSAllowedOrigin:     v.GetString("CORS_ALLOWED_ORIGIN"),
 		AdminUsername:         v.GetString("ADMIN_USERNAME"),
 		AdminPassword:         v.GetString("ADMIN_PASSWORD"),

@@ -27,7 +27,7 @@ func (s *Supervisor) buildCmd(token string, metricsPort int, logWriter io.Writer
 	return cmd
 }
 
-// waitForProcessExit waits for the process to exit and returns its exit status.
+// armStableTimer sets a timer that resets the restart count after a stable period.
 func (s *Supervisor) armStableTimer(mp *managedProcess) {
 	mp.mu.Lock()
 	defer mp.mu.Unlock()

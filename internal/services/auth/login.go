@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"time"
 
 	"tunnelmanager/internal/model"
@@ -15,10 +16,18 @@ import (
 var ErrInvalidCredentials = errors.New("authservice: invalid credentials")
 
 var dummyPasswordHash []byte
+var letters = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890!@#$%^&*()-_=+[]{}|;:,.<>?/~`")
 
 func init() {
+	length := rand.Intn(16) + 16 // Random length between 16 and 32
+	dummyPassword := make([]byte, length)
+
+	for i := range dummyPassword {
+		dummyPassword[i] = letters[rand.Intn(len(letters))]
+	}
+
 	var err error
-	dummyPasswordHash, err = bcrypt.GenerateFromPassword([]byte("timing-attack-mitigation-dummy"), bcrypt.DefaultCost)
+	dummyPasswordHash, err = bcrypt.GenerateFromPassword(dummyPassword, bcrypt.DefaultCost)
 	if err != nil {
 		panic(fmt.Sprintf("authservice: failed to generate dummy password hash: %v", err))
 	}
