@@ -3,8 +3,11 @@ package domainrepo
 import (
 	"context"
 	"tunnelmanager/internal/model"
+	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/repo/scopes"
 	domainrequest "tunnelmanager/internal/pkg/request/domain"
+
+	"github.com/uptrace/bun"
 )
 
 func (r *domainRepository) List(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error) {
@@ -36,6 +39,20 @@ func (r *domainRepository) List(ctx context.Context, req domainrequest.ListDomai
 	}
 
 	return domains, nextCursor, nil
+}
+
+func (r *domainRepository) ListAll(ctx context.Context, statuses ...constant.DomainStatus) ([]*model.Domain, error) {
+	var domains []*model.Domain
+	q := r.db.NewSelect().Model(&domains).Order("created_at ASC", "id ASC")
+	if len(statuses) > 0 {
+		q = q.Where("status IN (?)", bun.In(statuses))
+	}
+
+	if err := q.Scan(ctx); err != nil {
+		return nil, err
+	}
+
+	return domains, nil
 }
 
 func (r *domainRepository) ListTakenPorts(ctx context.Context) (map[int]bool, error) {

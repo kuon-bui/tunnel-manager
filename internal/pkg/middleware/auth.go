@@ -1,28 +1,35 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"strings"
-
-	"tunnelmanager/internal/pkg/jwt"
 
 	"github.com/gin-gonic/gin"
 )
 
-func JWTAuth(secret []byte) gin.HandlerFunc {
+type Authenticator interface {
+	Authenticate(ctx context.Context, token string) (string, error)
+}
+
+const AuthenticatedUsernameKey = "authenticatedUsername"
+
+func JWTAuth(authenticator Authenticator) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		token, ok := strings.CutPrefix(header, "Bearer ")
-		if !ok || token == "" {
+		if !ok || token == "" || strings.ContainsAny(token, " \t\r\n") {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
-		if _, err := jwt.ParseToken(secret, token); err != nil {
+		username, err := authenticator.Authenticate(c.Request.Context(), token)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
 
+		c.Set(AuthenticatedUsernameKey, username)
 		c.Next()
 	}
 }

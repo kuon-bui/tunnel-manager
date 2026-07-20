@@ -81,7 +81,7 @@ openssl rand -hex 32
 | `CLOUDFLARED_BINARY` | Yes | Path or command name for the `cloudflared` executable. |
 | `CLOUDFLARED_PROTOCOL` | Yes | Transport protocol passed to `cloudflared`. Allowed values: `http2`, `quic`. |
 | `ADMIN_USERNAME` | Yes | Username for the seeded admin account created on startup. |
-| `ADMIN_PASSWORD` | Yes | Password for the seeded admin account. Changing this and restarting rotates the login password. |
+| `ADMIN_PASSWORD` | Yes | Initial password used only when creating the admin account for the first time. |
 | `JWT_SECRET` | Yes | Hex-encoded key used to sign JWTs. Must decode to at least 32 bytes. |
 | `JWT_TTL` | No | Access token lifetime, parsed as a Go duration (for example `168h`). Defaults to `168h` (7 days) when unset. |
 
@@ -178,6 +178,7 @@ The service exposes these routes:
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT. |
+| `PUT` | `/api/auth/password` | Change the authenticated admin password and rotate all sessions. |
 | `POST` | `/api/domains` | Create a managed domain and its Cloudflare tunnel resources. |
 | `GET` | `/api/domains` | List managed domains. |
 | `GET` | `/api/domains/:id` | Fetch one managed domain. |
@@ -190,8 +191,11 @@ The service exposes these routes:
 
 There is no dedicated `/healthz` endpoint in the current codebase.
 `POST /api/auth/login` is the only unauthenticated route and can be used as
-a basic reachability check. Every `/api/domains/*` route requires a valid
-`Authorization: Bearer <token>` header obtained from that login endpoint.
+a basic reachability check. Every `/api/domains/*` route and
+`PUT /api/auth/password` require a valid `Authorization: Bearer <token>`
+header obtained from login. Password change requires `currentPassword` and a
+different `newPassword` containing 12–72 UTF-8 bytes. It returns a replacement
+token and invalidates every older token immediately.
 
 ## Operational Notes
 

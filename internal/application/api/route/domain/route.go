@@ -1,8 +1,8 @@
 package domainroute
 
 import (
-	"tunnelmanager/internal/pkg/config"
 	"tunnelmanager/internal/pkg/middleware"
+	authservice "tunnelmanager/internal/services/auth"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/fx"
@@ -11,7 +11,7 @@ import (
 type DomainRoute struct {
 	*gin.Engine
 	domainHandler *DomainHandler
-	jwtSecret     []byte
+	authService   authservice.AuthService
 }
 
 type DomainRouteParams struct {
@@ -19,20 +19,20 @@ type DomainRouteParams struct {
 
 	Engine        *gin.Engine
 	DomainHandler *DomainHandler
-	Cfg           config.Config
+	AuthService   authservice.AuthService
 }
 
 func NewDomainRoute(params DomainRouteParams) *DomainRoute {
 	return &DomainRoute{
 		Engine:        params.Engine,
 		domainHandler: params.DomainHandler,
-		jwtSecret:     params.Cfg.JWTSecret,
+		authService:   params.AuthService,
 	}
 }
 
 func (r *DomainRoute) Setup() {
 
-	g := r.Group("/api/domains", middleware.JWTAuth(r.jwtSecret))
+	g := r.Group("/api/domains", middleware.JWTAuth(r.authService))
 	g.POST("", r.domainHandler.createDomain)
 	g.GET("", r.domainHandler.listDomains)
 	g.GET("/:id", r.domainHandler.getDomain)

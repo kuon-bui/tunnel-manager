@@ -8,14 +8,22 @@ import (
 	jwtlib "github.com/golang-jwt/jwt/v5"
 )
 
-func GenerateToken(secret []byte, username string, ttl time.Duration) (string, time.Time, error) {
+type Claims struct {
+	TokenVersion int64 `json:"tokenVersion"`
+	jwtlib.RegisteredClaims
+}
+
+func GenerateToken(secret []byte, username string, tokenVersion int64, ttl time.Duration) (string, time.Time, error) {
 	now := time.Now().UTC()
 	expiresAt := now.Add(ttl)
 
-	claims := jwtlib.RegisteredClaims{
-		Subject:   username,
-		IssuedAt:  jwtlib.NewNumericDate(now),
-		ExpiresAt: jwtlib.NewNumericDate(expiresAt),
+	claims := Claims{
+		TokenVersion: tokenVersion,
+		RegisteredClaims: jwtlib.RegisteredClaims{
+			Subject:   username,
+			IssuedAt:  jwtlib.NewNumericDate(now),
+			ExpiresAt: jwtlib.NewNumericDate(expiresAt),
+		},
 	}
 
 	token := jwtlib.NewWithClaims(jwtlib.SigningMethodHS256, claims)
@@ -27,20 +35,23 @@ func GenerateToken(secret []byte, username string, ttl time.Duration) (string, t
 	return signed, expiresAt, nil
 }
 
-func ParseToken(secret []byte, tokenString string) (string, error) {
-	claims := &jwtlib.RegisteredClaims{}
+func ParseToken(secret []byte, tokenString string) (string, int64, error) {
+	claims := &Claims{}
 	token, err := jwtlib.ParseWithClaims(tokenString, claims, func(t *jwtlib.Token) (any, error) {
 		if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("jwt: unexpected signing method: %v", t.Header["alg"])
 		}
 		return secret, nil
-	})
+	}, jwtlib.WithValidMethods([]string{jwtlib.SigningMethodHS256.Alg()}), jwtlib.WithExpirationRequired())
 	if err != nil {
-		return "", fmt.Errorf("jwt: parse token: %w", err)
+		return "", 0, fmt.Errorf("jwt: parse token: %w", err)
 	}
 	if !token.Valid {
-		return "", errors.New("jwt: invalid token")
+		return "", 0, errors.New("jwt: invalid token")
+	}
+	if claims.Subject == "" || claims.TokenVersion < 1 {
+		return "", 0, errors.New("jwt: invalid claims")
 	}
 
-	return claims.Subject, nil
+	return claims.Subject, claims.TokenVersion, nil
 }

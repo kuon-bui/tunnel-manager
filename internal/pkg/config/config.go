@@ -68,8 +68,8 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("ENCRYPTION_KEY must be hex-encoded: %w", err)
 	}
-	if len(key) != 32 {
-		return Config{}, fmt.Errorf("ENCRYPTION_KEY must decode to 32 bytes (got %d)", len(key))
+	if len(key) < 32 {
+		return Config{}, fmt.Errorf("ENCRYPTION_KEY must decode at least 32 bytes (got %d)", len(key))
 	}
 	cfg.EncryptionKey = key
 
@@ -91,6 +91,9 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("JWT_TTL must be a valid duration: %w", err)
 		}
 		cfg.JWTTTL = ttl
+	}
+	if cfg.JWTTTL <= 0 {
+		return Config{}, fmt.Errorf("JWT_TTL must be positive")
 	}
 
 	if cfg.MetricsPortRangeEnd <= cfg.MetricsPortRangeStart {

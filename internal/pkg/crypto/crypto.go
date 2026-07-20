@@ -11,7 +11,7 @@ import (
 
 // Encrypt returns base64(nonce || ciphertext). key must be 32 bytes (AES-256).
 func Encrypt(key []byte, plaintext string) (string, error) {
-	if len(key) != 32 {
+	if len(key) < 32 {
 		return "", fmt.Errorf("crypto: key must be 32 bytes, got %d", len(key))
 	}
 	block, err := aes.NewCipher(key)

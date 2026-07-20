@@ -47,7 +47,7 @@ func (s *authService) Login(ctx context.Context, username, password string) (str
 		return "", time.Time{}, ErrInvalidCredentials
 	}
 
-	token, expiresAt, err := jwt.GenerateToken(s.secret, auth.Username, s.ttl)
+	token, expiresAt, err := jwt.GenerateToken(s.secret, auth.Username, auth.TokenVersion, s.ttl)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("authservice: generate token: %w", err)
 	}
