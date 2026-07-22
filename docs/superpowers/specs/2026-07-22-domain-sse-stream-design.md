@@ -1,7 +1,7 @@
 # Domain SSE Stream and Cookie Authentication Design
 
 **Date:** 2026-07-22
-**Status:** Approved
+**Status:** Design approved; written spec pending review
 
 ## Goal
 
@@ -103,7 +103,7 @@ Subscribing before the first query prevents a mutation between initial list load
 
 ## Domain Change Broadcaster
 
-`domainService` owns a process-local subscriber set protected by its existing service synchronization strategy. Each subscriber receives a buffered `chan struct{}` with capacity `1`.
+`domainService` owns a process-local subscriber set protected by a dedicated mutex, separate from log-buffer locking. Each subscriber receives a buffered `chan struct{}` with capacity `1`.
 
 The service exposes subscription through its interface. Subscription returns a receive-only notification channel plus an idempotent cancellation function. Cancellation removes the subscriber and closes no shared publisher state.
 
@@ -176,11 +176,13 @@ For `POST`, `PUT`, `PATCH`, and `DELETE`:
 
 Deployments using cookie authentication must set `CORS_ALLOWED_ORIGIN` to the frontend's exact public origin, including scheme and port where applicable. Wildcard origins are not accepted with credentials.
 
+Public login and logout routes preserve non-browser compatibility: if an `Origin` header is present, it must match `CORS_ALLOWED_ORIGIN`; requests without `Origin` remain allowed. Browser cross-origin requests supply `Origin` and are rejected before credentials are created or cleared.
+
 ### Logout
 
 Add `POST /api/auth/logout`. It clears `tunnel_manager_token` using the same `Path`, `Secure`, `HttpOnly`, and `SameSite` attributes, with an expired timestamp and negative `Max-Age`.
 
-Logout succeeds idempotently even when JWT is absent or expired, allowing clients to clear stale cookies. It still requires an allowed `Origin` when an Origin header is supplied or cookie context is present. Bearer tokens remain stateless; clients discard them locally. Password changes continue invalidating issued JWTs through token versioning.
+Logout succeeds idempotently even when JWT is absent or expired, allowing clients to clear stale cookies. If `Origin` is present, it must match `CORS_ALLOWED_ORIGIN`; missing `Origin` remains valid for non-browser clients. Bearer tokens remain stateless; clients discard them locally. Password changes continue invalidating issued JWTs through token versioning.
 
 ## CORS
 
@@ -231,6 +233,8 @@ Expected changes stay within current module boundaries:
   - Register logout route.
 - `internal/pkg/middleware/auth.go`
   - Support Bearer and cookie token sources plus CSRF enforcement.
+- `internal/pkg/middleware/origin.go`
+  - Validate browser origins for public login and logout routes.
 - `internal/pkg/middleware/cors.go`
   - Allow credentialed requests for configured exact origin.
 - `internal/pkg/config/config.go`, `.env.example`, and `README.md`
@@ -256,6 +260,7 @@ Cover:
 - Missing or mismatched Origin rejection for unsafe cookie requests.
 - Login cookie attributes and retained JSON token response.
 - Logout cookie expiration and idempotent response.
+- Login and logout reject a supplied untrusted Origin while retaining clients that send no Origin.
 
 ### Broadcaster Tests
 
