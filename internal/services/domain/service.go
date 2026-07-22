@@ -33,6 +33,7 @@ type DomainService interface {
 	RestartDomain(ctx context.Context, id string) error
 	Logs(ctx context.Context, id string) ([]string, error)
 	ProxyMetrics(ctx context.Context, id string, w http.ResponseWriter) error
+	Subscribe() (<-chan struct{}, func())
 	HandleSupervisorEvent(ev process.ProcessEvent)
 	Reconcile(ctx context.Context) error
 }
@@ -47,6 +48,9 @@ type domainService struct {
 
 	mu   sync.Mutex
 	logs map[string]*logbuf.Buffer
+
+	subscriberMu sync.Mutex
+	subscribers  map[chan struct{}]struct{}
 }
 
 type DomainServiceParams struct {
@@ -64,13 +68,14 @@ func NewDomainService(
 	processSupervisor process.ProcessSupervisor,
 ) DomainService {
 	service := &domainService{
-		repo:   params.Repo,
-		cf:     params.CF,
-		sup:    params.Supervisor,
-		ports:  params.Ports,
-		encKey: params.Cfg.EncryptionKey,
-		logDir: params.Cfg.LogDir,
-		logs:   make(map[string]*logbuf.Buffer),
+		repo:        params.Repo,
+		cf:          params.CF,
+		sup:         params.Supervisor,
+		ports:       params.Ports,
+		encKey:      params.Cfg.EncryptionKey,
+		logDir:      params.Cfg.LogDir,
+		logs:        make(map[string]*logbuf.Buffer),
+		subscribers: make(map[chan struct{}]struct{}),
 	}
 	processSupervisor.SetEventHandler(service.HandleSupervisorEvent)
 	return service
@@ -142,7 +147,7 @@ func (s *domainService) Reconcile(ctx context.Context) error {
 		}
 	}
 
-	return s.repo.UpdateBulk(ctx, failed)
+	return s.updateBulk(ctx, failed)
 }
 
 func (s *domainService) HandleSupervisorEvent(ev process.ProcessEvent) {
@@ -157,5 +162,5 @@ func (s *domainService) HandleSupervisorEvent(ev process.ProcessEvent) {
 	if ev.Err != nil {
 		domain.LastError = ev.Err.Error()
 	}
-	_ = s.repo.Update(ctx, domain)
+	_ = s.update(ctx, domain)
 }

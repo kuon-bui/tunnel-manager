@@ -15,7 +15,7 @@ func (s *domainService) UpdateOrigin(ctx context.Context, id, originURL string) 
 		return nil, fmt.Errorf("service: update ingress config: %w", err)
 	}
 	domain.OriginURL = originURL
-	if err := s.repo.Update(ctx, domain); err != nil {
+	if err := s.update(ctx, domain); err != nil {
 		return nil, err
 	}
 	return domain, nil
