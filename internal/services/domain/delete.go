@@ -24,5 +24,5 @@ func (s *domainService) DeleteDomain(ctx context.Context, id string) error {
 	if err := s.cf.DeleteTunnel(ctx, domain.CloudflareTunnelID); err != nil {
 		log.Printf("service: delete domain %s: delete tunnel %s failed, continuing with best-effort cleanup: %v", id, domain.CloudflareTunnelID, err)
 	}
-	return s.repo.Delete(ctx, id)
+	return s.delete(ctx, id)
 }

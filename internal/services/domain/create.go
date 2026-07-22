@@ -76,14 +76,14 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	if err := s.repo.Create(ctx, domain); err != nil {
+	if err := s.create(ctx, domain); err != nil {
 		return nil, fmt.Errorf("service: persist domain: %w", err)
 	}
 
 	if err := s.spawn(domain, tunnel.Token); err != nil {
 		domain.Status = constant.StatusError
 		domain.LastError = err.Error()
-		_ = s.repo.Update(ctx, domain)
+		_ = s.update(ctx, domain)
 		return domain, nil
 	}
 
