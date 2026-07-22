@@ -36,6 +36,7 @@ func NewAuthRoute(params AuthRouteParams) *AuthRoute {
 
 func (r *AuthRoute) Setup() {
 	g := r.Group("/api/auth")
-	g.POST("/login", r.authHandler.login)
+	g.POST("/login", middleware.RequireAllowedOrigin(r.cfg), r.authHandler.login)
+	g.POST("/logout", middleware.RequireAllowedOrigin(r.cfg), r.authHandler.logout)
 	g.PUT("/password", middleware.JWTAuth(r.authService, r.cfg), r.authHandler.changePassword)
 }
