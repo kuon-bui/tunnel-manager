@@ -80,10 +80,12 @@ openssl rand -hex 32
 | `METRICS_PORT_RANGE_END` | Yes | End of the local metrics port range. Must be greater than `METRICS_PORT_RANGE_START`. |
 | `CLOUDFLARED_BINARY` | Yes | Path or command name for the `cloudflared` executable. |
 | `CLOUDFLARED_PROTOCOL` | Yes | Transport protocol passed to `cloudflared`. Allowed values: `http2`, `quic`. |
+| `CORS_ALLOWED_ORIGIN` | Yes for browser clients | Exact trusted frontend origin, for example `https://manager.example.com`. Enables credentialed CORS and protects cookie-authenticated writes. |
 | `ADMIN_USERNAME` | Yes | Username for the seeded admin account created on startup. |
 | `ADMIN_PASSWORD` | Yes | Initial password used only when creating the admin account for the first time. |
 | `JWT_SECRET` | Yes | Hex-encoded key used to sign JWTs. Must decode to at least 32 bytes. |
 | `JWT_TTL` | No | Access token lifetime, parsed as a Go duration (for example `168h`). Defaults to `168h` (7 days) when unset. |
+| `AUTH_COOKIE_SECURE` | No | Whether the authentication cookie requires HTTPS. Defaults to `true`; set to `false` only for local HTTP development. |
 
 ### Example Host Configuration
 
@@ -97,8 +99,10 @@ METRICS_PORT_RANGE_START=20500
 METRICS_PORT_RANGE_END=20999
 CLOUDFLARED_BINARY=cloudflared
 CLOUDFLARED_PROTOCOL=http2
+CORS_ALLOWED_ORIGIN=http://localhost:3000
 ADMIN_USERNAME=admin
 JWT_TTL=168h
+AUTH_COOKIE_SECURE=false
 ```
 
 For host deployments, ensure the `data/` directory exists and is writable
@@ -177,10 +181,12 @@ The service exposes these routes:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT. |
+| `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT and authentication cookie. |
+| `POST` | `/api/auth/logout` | Clear the authentication cookie. |
 | `PUT` | `/api/auth/password` | Change the authenticated admin password and rotate all sessions. |
 | `POST` | `/api/domains` | Create a managed domain and its Cloudflare tunnel resources. |
 | `GET` | `/api/domains` | List managed domains. |
+| `GET` | `/api/domains/stream` | Stream filtered domain-list snapshots using SSE. |
 | `GET` | `/api/domains/:id` | Fetch one managed domain. |
 | `PUT` | `/api/domains/:id` | Update the origin URL for a managed domain. |
 | `DELETE` | `/api/domains/:id` | Delete a managed domain and its Cloudflare resources. |
@@ -190,12 +196,56 @@ The service exposes these routes:
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
 
 There is no dedicated `/healthz` endpoint in the current codebase.
-`POST /api/auth/login` is the only unauthenticated route and can be used as
-a basic reachability check. Every `/api/domains/*` route and
-`PUT /api/auth/password` require a valid `Authorization: Bearer <token>`
-header obtained from login. Password change requires `currentPassword` and a
-different `newPassword` containing 12–72 UTF-8 bytes. It returns a replacement
-token and invalidates every older token immediately.
+`POST /api/auth/login` and `POST /api/auth/logout` are unauthenticated routes.
+Every `/api/domains/*` route and `PUT /api/auth/password` accepts either an
+`Authorization: Bearer <token>` header or the `tunnel_manager_token` cookie.
+When both are present, the Bearer header always wins; an invalid Bearer header
+does not fall back to the cookie. Login and password change return the token in
+JSON and set the same token in an `HttpOnly`, `SameSite=Strict`, `/api` cookie.
+Logout clears that cookie and returns `204 No Content`.
+
+Browser requests from another origin must set `CORS_ALLOWED_ORIGIN` to the
+frontend's exact origin and include credentials. Cookie-authenticated `POST`,
+`PUT`, `PATCH`, and `DELETE` requests require that exact `Origin`. Login and
+logout reject a supplied non-matching `Origin`; requests without `Origin`
+remain available to non-browser clients. Bearer-authenticated requests remain
+supported for clients that manage the token directly.
+
+Password change requires `currentPassword` and a different `newPassword`
+containing 12–72 UTF-8 bytes. It returns a replacement token and invalidates
+every older token immediately.
+
+### Domain Event Stream
+
+Native `EventSource` cannot set an Authorization header, so browser clients
+should authenticate this endpoint with the login cookie:
+
+```js
+const source = new EventSource("http://localhost:8080/api/domains/stream", {
+  withCredentials: true,
+});
+
+source.addEventListener("domains", ({ data }) => {
+  const { items, nextCursor } = JSON.parse(data);
+  // Replace the visible list with this complete snapshot.
+});
+
+source.addEventListener("error", () => source.close());
+```
+
+`GET /api/domains/stream` accepts the same `status`, `hostname`, `page`,
+`pageSize`, and `cursor` query parameters as `GET /api/domains`. It immediately
+sends a named `domains` event with a complete filtered snapshot:
+
+```json
+{"items":[],"nextCursor":""}
+```
+
+Successful domain mutations trigger a fresh snapshot. A comment heartbeat is
+sent every 15 seconds. If a snapshot reload fails, the server sends a generic
+`error` event and closes the stream. Update fan-out is process-local; use shared
+pub/sub before running multiple backend replicas that must notify each other's
+SSE clients.
 
 ## Operational Notes
 
