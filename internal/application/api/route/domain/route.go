@@ -39,6 +39,7 @@ func (r *DomainRoute) Setup() {
 	g := r.Group("/api/domains", middleware.JWTAuth(r.authService, r.cfg))
 	g.POST("", r.domainHandler.createDomain)
 	g.GET("", r.domainHandler.listDomains)
+	g.GET("/stream", r.domainHandler.streamDomains)
 	g.GET("/:id", r.domainHandler.getDomain)
 	g.PUT("/:id", r.domainHandler.updateDomain)
 	g.DELETE("/:id", r.domainHandler.deleteDomain)
