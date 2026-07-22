@@ -1,7 +1,7 @@
 # Domain SSE Stream and Cookie Authentication Design
 
 **Date:** 2026-07-22
-**Status:** Design approved; written spec pending review
+**Status:** Approved
 
 ## Goal
 
@@ -115,7 +115,7 @@ Publishing is non-blocking:
 
 Signals contain no domain payload. Handler reloads the complete requested snapshot after each signal. This coalesces rapid mutations and guarantees frontend convergence without implementing delta ordering or replay logic.
 
-Publish after successful state-changing operations:
+All successful domain persistence writes publish through small service-level wrappers around repository `Create`, `Update`, `UpdateBulk`, and `Delete`. This covers:
 
 - Domain creation.
 - Origin update.
@@ -124,7 +124,7 @@ Publish after successful state-changing operations:
 - Successful persistence of supervisor process events.
 - Reconcile persistence when it changes domain status.
 
-Failed operations do not publish.
+Failed persistence writes do not publish. If an outer operation fails after an earlier persistence write succeeded, that write still publishes because it changed frontend-visible state.
 
 > `ponytail:` Broadcaster is process-local and supports one backend process. Add Redis Pub/Sub, database notifications, or another shared event transport before running multiple backend replicas.
 
@@ -153,6 +153,8 @@ Successful login also sets JWT cookie with:
 - Positive `Max-Age` aligned with remaining JWT lifetime.
 
 `AUTH_COOKIE_SECURE` defaults to `true`. Local HTTP development must explicitly set it to `false`.
+
+Successful password change sets the replacement JWT in the same cookie, because token-version rotation immediately invalidates the previous cookie.
 
 ### Middleware Token Selection
 
@@ -227,6 +229,8 @@ Expected changes stay within current module boundaries:
   - Publish after successful state changes.
 - `internal/application/api/route/auth/login.go`
   - Set JWT cookie while preserving JSON response.
+- `internal/application/api/route/auth/change_password.go`
+  - Replace JWT cookie after token-version rotation.
 - `internal/application/api/route/auth/logout.go`
   - Clear JWT cookie.
 - `internal/application/api/route/auth/route.go`
@@ -259,6 +263,7 @@ Cover:
 - Unsafe cookie request with matching Origin acceptance.
 - Missing or mismatched Origin rejection for unsafe cookie requests.
 - Login cookie attributes and retained JSON token response.
+- Password change replaces the invalidated JWT cookie.
 - Logout cookie expiration and idempotent response.
 - Login and logout reject a supplied untrusted Origin while retaining clients that send no Origin.
 
