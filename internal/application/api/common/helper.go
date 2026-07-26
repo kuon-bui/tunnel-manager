@@ -13,5 +13,9 @@ func WriteGetErr(c *gin.Context, err error) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 		return
 	}
+	if errors.Is(err, model.ErrSyncedDomainReadOnly) {
+		c.JSON(http.StatusConflict, gin.H{"error": "synced Cloudflare domains are read-only"})
+		return
+	}
 	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 }

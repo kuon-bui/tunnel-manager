@@ -3,6 +3,7 @@ package domainservice
 import (
 	"context"
 	"fmt"
+	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/crypto"
 )
 
@@ -15,6 +16,9 @@ func (s *domainService) RestartDomain(ctx context.Context, id string) (err error
 	domain, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !domain.Managed {
+		return model.ErrSyncedDomainReadOnly
 	}
 	plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
 	if err != nil {

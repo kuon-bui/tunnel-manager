@@ -14,6 +14,9 @@ func (s *prometheusService) Discovery(ctx context.Context) ([]response.TargetsMe
 	}
 	res := make([]response.TargetsMetrics, 0, len(domains))
 	for _, domain := range domains {
+		if !domain.Managed {
+			continue
+		}
 		target := response.TargetsMetrics{
 			Targets: []string{s.baseURL},
 			Labels: response.LabelsMetrics{

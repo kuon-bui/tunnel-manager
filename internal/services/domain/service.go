@@ -2,6 +2,7 @@ package domainservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -24,7 +25,7 @@ import (
 )
 
 type DomainService interface {
-	CreateDomain(ctx context.Context, hostname, originURL string) (*model.Domain, error)
+	CreateDomain(ctx context.Context, hostname, originURL, path string) (*model.Domain, error)
 	ListDomains(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error)
 	GetDomain(ctx context.Context, id string) (*model.Domain, error)
 	UpdateOrigin(ctx context.Context, id, originURL string) (*model.Domain, error)
@@ -34,6 +35,7 @@ type DomainService interface {
 	Logs(ctx context.Context, id string) ([]string, error)
 	ProxyMetrics(ctx context.Context, id string, w http.ResponseWriter) error
 	HandleSupervisorEvent(ev process.ProcessEvent)
+	SyncCloudflare(ctx context.Context) error
 	Reconcile(ctx context.Context) error
 }
 
@@ -94,6 +96,9 @@ func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.Resp
 	if err != nil {
 		return err
 	}
+	if !domain.Managed {
+		return model.ErrSyncedDomainReadOnly
+	}
 	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/metrics", domain.MetricsPort))
 	if err != nil {
 		return fmt.Errorf("service: fetch metrics: %w", err)
@@ -108,16 +113,21 @@ func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.Resp
 }
 
 func (s *domainService) Reconcile(ctx context.Context) error {
+	syncErr := s.SyncCloudflare(ctx)
+
 	active, _, err := s.repo.List(ctx, domainrequest.ListDomainRequest{
 		Pagination: common.Pagination{PageSize: -1},
 		Status:     constant.StatusActive,
 	})
 	if err != nil {
-		return err
+		return errors.Join(syncErr, err)
 	}
 
 	p := pool.NewWithResults[*model.Domain]()
 	for _, domain := range active {
+		if !domain.Managed {
+			continue
+		}
 		p.Go(func() *model.Domain {
 			plaintext, err := crypto.Decrypt(s.encKey, domain.EncryptedTunnelToken)
 			if err != nil {
@@ -142,7 +152,7 @@ func (s *domainService) Reconcile(ctx context.Context) error {
 		}
 	}
 
-	return s.repo.UpdateBulk(ctx, failed)
+	return errors.Join(syncErr, s.repo.UpdateBulk(ctx, failed))
 }
 
 func (s *domainService) HandleSupervisorEvent(ev process.ProcessEvent) {

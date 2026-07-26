@@ -11,7 +11,10 @@ func (s *domainService) UpdateOrigin(ctx context.Context, id, originURL string) 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.cf.PutIngressConfig(ctx, domain.CloudflareTunnelID, domain.Hostname, originURL); err != nil {
+	if !domain.Managed {
+		return nil, model.ErrSyncedDomainReadOnly
+	}
+	if err := s.cf.PutIngressConfig(ctx, domain.CloudflareTunnelID, domain.Hostname, originURL, domain.Path); err != nil {
 		return nil, fmt.Errorf("service: update ingress config: %w", err)
 	}
 	domain.OriginURL = originURL

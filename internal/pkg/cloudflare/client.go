@@ -46,12 +46,71 @@ func (c *client) CreateTunnel(ctx context.Context, name string) (TunnelInfo, err
 	return TunnelInfo{TunnelID: tunnel.ID, Token: *token}, nil
 }
 
-func (c *client) PutIngressConfig(ctx context.Context, tunnelID, hostname, originURL string) error {
+func (c *client) ListRemoteTunnels(ctx context.Context) ([]RemoteTunnel, error) {
+	pager := c.api.ZeroTrust.Tunnels.Cloudflared.ListAutoPaging(ctx, zero_trust.TunnelCloudflaredListParams{
+		AccountID: cloudflareapi.F(c.accountID),
+		IsDeleted: cloudflareapi.F(false),
+		PerPage:   cloudflareapi.F(100.0),
+	})
+
+	tunnels := make([]RemoteTunnel, 0)
+	for pager.Next() {
+		tunnel := pager.Current()
+		if tunnel.ConfigSrc != "cloudflare" {
+			continue
+		}
+
+		configuration, err := c.api.ZeroTrust.Tunnels.Cloudflared.Configurations.Get(
+			ctx,
+			tunnel.ID,
+			zero_trust.TunnelCloudflaredConfigurationGetParams{
+				AccountID: cloudflareapi.F(c.accountID),
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cloudflare: get tunnel %s configuration: %w", tunnel.ID, err)
+		}
+
+		remote := RemoteTunnel{
+			TunnelID:  tunnel.ID,
+			Name:      tunnel.Name,
+			Status:    string(tunnel.Status),
+			CreatedAt: tunnel.CreatedAt,
+			Ingress:   make([]TunnelIngress, 0, len(configuration.Config.Ingress)),
+		}
+		for _, ingress := range configuration.Config.Ingress {
+			if ingress.Hostname == "" {
+				continue
+			}
+			remote.Ingress = append(remote.Ingress, TunnelIngress{
+				Hostname:  ingress.Hostname,
+				OriginURL: ingress.Service,
+				Path:      ingress.Path,
+			})
+		}
+		tunnels = append(tunnels, remote)
+	}
+	if err := pager.Err(); err != nil {
+		return nil, fmt.Errorf("cloudflare: list tunnels: %w", err)
+	}
+
+	return tunnels, nil
+}
+
+func (c *client) PutIngressConfig(ctx context.Context, tunnelID, hostname, originURL, path string) error {
+	ingress := zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
+		Hostname: cloudflareapi.F(hostname),
+		Service:  cloudflareapi.F(originURL),
+	}
+	if path != "" {
+		ingress.Path = cloudflareapi.F(path)
+	}
+
 	_, err := c.api.ZeroTrust.Tunnels.Cloudflared.Configurations.Update(ctx, tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 		AccountID: cloudflareapi.F(c.accountID),
 		Config: cloudflareapi.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
 			Ingress: cloudflareapi.F([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
-				{Hostname: cloudflareapi.F(hostname), Service: cloudflareapi.F(originURL)},
+				ingress,
 				{Service: cloudflareapi.F("http_status:404")},
 			}),
 		}),

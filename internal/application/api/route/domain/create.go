@@ -14,7 +14,7 @@ func (h *DomainHandler) createDomain(c *gin.Context) {
 		return
 	}
 
-	domain, err := h.domainService.CreateDomain(c.Request.Context(), req.Hostname, req.OriginURL)
+	domain, err := h.domainService.CreateDomain(c.Request.Context(), req.Hostname, req.OriginURL, req.Path)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

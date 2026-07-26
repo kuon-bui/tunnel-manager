@@ -30,6 +30,8 @@ reconcile and continue operating across restarts.
 At runtime it:
 
 - creates and deletes Cloudflare tunnels and DNS records
+- syncs remotely-managed Cloudflare Tunnel ingress routes into SQLite on
+  startup and at a configurable interval
 - starts and stops `cloudflared` processes for managed domains
 - stores service state in SQLite
 - exposes operational endpoints under `/api/domains`
@@ -72,6 +74,7 @@ openssl rand -hex 32
 | `CLOUDFLARE_API_TOKEN` | Yes | API token used for Cloudflare tunnel and DNS operations. |
 | `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account that owns the tunnels. |
 | `CLOUDFLARE_ZONE_ID` | Yes | Cloudflare DNS zone where CNAME records are created. |
+| `CLOUDFLARE_SYNC_INTERVAL` | No | Interval for pulling remotely-managed tunnel ingress routes from Cloudflare. Defaults to `5m`. |
 | `ENCRYPTION_KEY` | Yes | Hex-encoded key used to encrypt stored tunnel tokens. Must decode to exactly 32 bytes. |
 | `DB_PATH` | Yes | SQLite database path. Parent directory must be writable. |
 | `LOG_DIR` | Yes | Directory where tunnel process logs are stored. Created on startup if missing. |
@@ -93,6 +96,7 @@ openssl rand -hex 32
 DB_PATH=./data/tunnel-manager.db
 LOG_DIR=./data/logs
 HTTP_ADDR=:8080
+CLOUDFLARE_SYNC_INTERVAL=5m
 METRICS_PORT_RANGE_START=20500
 METRICS_PORT_RANGE_END=20999
 CLOUDFLARED_BINARY=cloudflared
@@ -180,14 +184,26 @@ The service exposes these routes:
 | `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT. |
 | `PUT` | `/api/auth/password` | Change the authenticated admin password and rotate all sessions. |
 | `POST` | `/api/domains` | Create a managed domain and its Cloudflare tunnel resources. |
-| `GET` | `/api/domains` | List managed domains. |
-| `GET` | `/api/domains/:id` | Fetch one managed domain. |
+| `GET` | `/api/domains` | List managed and Cloudflare-synced domains. |
+| `GET` | `/api/domains/:id` | Fetch one managed or Cloudflare-synced domain. |
 | `PUT` | `/api/domains/:id` | Update the origin URL for a managed domain. |
 | `DELETE` | `/api/domains/:id` | Delete a managed domain and its Cloudflare resources. |
 | `POST` | `/api/domains/:id/stop` | Stop the managed `cloudflared` process. |
 | `POST` | `/api/domains/:id/restart` | Restart the managed `cloudflared` process. |
 | `GET` | `/api/domains/:id/logs` | Return buffered log lines for a managed domain. |
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
+
+`POST /api/domains` accepts an optional Cloudflare ingress `path`:
+
+```json
+{
+  "hostname": "app.example.com",
+  "originUrl": "http://app:8080",
+  "path": "/api/.*"
+}
+```
+
+Omit `path` (or send an empty string) to route every path for the hostname.
 
 There is no dedicated `/healthz` endpoint in the current codebase.
 `POST /api/auth/login` is the only unauthenticated route and can be used as
@@ -200,6 +216,11 @@ token and invalidates every older token immediately.
 ## Operational Notes
 
 - Service state is persisted in SQLite at `DB_PATH`.
+- Remotely-managed Cloudflare Tunnel ingress routes are synced once at startup
+  and then every `CLOUDFLARE_SYNC_INTERVAL`.
+- Synced rows return `managed: false`. They are read-only, never receive a
+  tunnel token or metrics port, and never start a local `cloudflared` process.
+  Mutation, process, and metrics operations on them return HTTP `409`.
 - Tunnel tokens are stored encrypted and are not returned in the HTTP responses.
 - The service creates `LOG_DIR` on startup if it does not already exist.
 - Each managed `cloudflared` process gets a local metrics port from the

@@ -10,22 +10,23 @@ import (
 )
 
 type Config struct {
-	CloudflareAPIToken    string
-	CloudflareAccountID   string
-	CloudflareZoneID      string
-	EncryptionKey         []byte
-	DBPath                string
-	LogDir                string
-	HTTPAddr              string
-	MetricsPortRangeStart int
-	MetricsPortRangeEnd   int
-	CloudflaredBinary     string
-	CloudflaredProtocol   constant.CloudflaredProtocol
-	CORSAllowedOrigin     string
-	AdminUsername         string
-	AdminPassword         string
-	JWTSecret             []byte
-	JWTTTL                time.Duration
+	CloudflareAPIToken     string
+	CloudflareAccountID    string
+	CloudflareZoneID       string
+	CloudflareSyncInterval time.Duration
+	EncryptionKey          []byte
+	DBPath                 string
+	LogDir                 string
+	HTTPAddr               string
+	MetricsPortRangeStart  int
+	MetricsPortRangeEnd    int
+	CloudflaredBinary      string
+	CloudflaredProtocol    constant.CloudflaredProtocol
+	CORSAllowedOrigin      string
+	AdminUsername          string
+	AdminPassword          string
+	JWTSecret              []byte
+	JWTTTL                 time.Duration
 }
 
 func Load() (Config, error) {
@@ -46,6 +47,20 @@ func Load() (Config, error) {
 		CORSAllowedOrigin:     v.GetString("CORS_ALLOWED_ORIGIN"),
 		AdminUsername:         v.GetString("ADMIN_USERNAME"),
 		AdminPassword:         v.GetString("ADMIN_PASSWORD"),
+	}
+
+	syncInterval := v.GetString("CLOUDFLARE_SYNC_INTERVAL")
+	if syncInterval == "" {
+		cfg.CloudflareSyncInterval = 5 * time.Minute
+	} else {
+		interval, err := time.ParseDuration(syncInterval)
+		if err != nil {
+			return Config{}, fmt.Errorf("CLOUDFLARE_SYNC_INTERVAL must be a valid duration: %w", err)
+		}
+		cfg.CloudflareSyncInterval = interval
+	}
+	if cfg.CloudflareSyncInterval <= 0 {
+		return Config{}, fmt.Errorf("CLOUDFLARE_SYNC_INTERVAL must be positive")
 	}
 
 	if cfg.CloudflareAPIToken == "" {

@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL string) (domain *model.Domain, err error) {
+func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, path string) (domain *model.Domain, err error) {
 	revertFuncs := []func(){}
 	defer func() {
 		if err != nil {
@@ -36,7 +36,7 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		_ = s.cf.DeleteTunnel(ctx, tunnel.TunnelID)
 	})
 
-	if err := s.cf.PutIngressConfig(ctx, tunnel.TunnelID, hostname, originURL); err != nil {
+	if err := s.cf.PutIngressConfig(ctx, tunnel.TunnelID, hostname, originURL, path); err != nil {
 		return nil, fmt.Errorf("service: put ingress config: %w", err)
 	}
 
@@ -68,9 +68,12 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		ID:                   uuid.NewString(),
 		Hostname:             hostname,
 		OriginURL:            originURL,
+		Path:                 path,
 		CloudflareTunnelID:   tunnel.TunnelID,
+		CloudflareTunnelName: hostname,
 		DNSRecordID:          dnsRecordID,
 		EncryptedTunnelToken: encToken,
+		Managed:              true,
 		Status:               constant.StatusPending,
 		MetricsPort:          port,
 		CreatedAt:            now,
@@ -91,6 +94,10 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 }
 
 func (s *domainService) spawn(domain *model.Domain, plaintextToken string) error {
+	if !domain.Managed {
+		return model.ErrSyncedDomainReadOnly
+	}
+
 	logPath := filepath.Join(s.logDir, domain.ID+".log")
 	logWriter, err := logbuf.NewBuffer(logPath, 500)
 	if err != nil {

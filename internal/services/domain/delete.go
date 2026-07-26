@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"tunnelmanager/internal/model"
 )
 
 func (s *domainService) DeleteDomain(ctx context.Context, id string) error {
 	domain, err := s.repo.Get(ctx, id)
 	if err != nil {
 		return err
+	}
+	if !domain.Managed {
+		return model.ErrSyncedDomainReadOnly
 	}
 	if s.sup.IsRunning(id) {
 		if err := s.sup.Stop(id); err != nil && !errors.Is(err, os.ErrProcessDone) {

@@ -17,6 +17,7 @@ type DomainRepository interface {
 	GetByHostname(ctx context.Context, hostname string) (*model.Domain, error)
 	Update(ctx context.Context, domain *model.Domain) error
 	UpdateBulk(ctx context.Context, domains []*model.Domain) error
+	ReplaceSynced(ctx context.Context, domains []*model.Domain) error
 	Delete(ctx context.Context, id string) error
 	ListTakenPorts(ctx context.Context) (map[int]bool, error)
 }
