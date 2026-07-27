@@ -2,6 +2,7 @@ package domainservice
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,8 +24,14 @@ import (
 	"go.uber.org/fx"
 )
 
+var (
+	ErrInvalidZone           = errors.New("domainservice: invalid Cloudflare zone")
+	ErrCloudflareUnavailable = errors.New("domainservice: Cloudflare unavailable")
+)
+
 type DomainService interface {
-	CreateDomain(ctx context.Context, hostname, originURL string) (*model.Domain, error)
+	CreateDomain(ctx context.Context, hostname, originURL, zoneID string) (*model.Domain, error)
+	ListCloudflareZones(ctx context.Context) ([]model.CloudflareZone, error)
 	ListDomains(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error)
 	GetDomain(ctx context.Context, id string) (*model.Domain, error)
 	UpdateOrigin(ctx context.Context, id, originURL string) (*model.Domain, error)

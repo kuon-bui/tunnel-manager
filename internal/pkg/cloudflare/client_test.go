@@ -62,3 +62,33 @@ func TestListZonesFetchesAllPagesAndReturnsSortedActiveZones(t *testing.T) {
 		t.Fatalf("requests = %d, want 3", requests)
 	}
 }
+
+func TestDNSMethodsUseExplicitZoneID(t *testing.T) {
+	requests := make([]string, 0, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodPost {
+			fmt.Fprint(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"record-1","name":"app.example.com","type":"CNAME","content":"tunnel-1.cfargotunnel.com","ttl":1,"proxied":true}}`)
+			return
+		}
+		fmt.Fprint(w, `{"success":true,"errors":[],"messages":[],"result":{"id":"record-1"}}`)
+	}))
+	defer server.Close()
+
+	client := &client{api: cloudflareapi.NewClient(option.WithBaseURL(server.URL), option.WithAPIToken("test-token")), accountID: "account-1"}
+	recordID, err := client.CreateDNSRecord(context.Background(), "zone-create", "app.example.com", "tunnel-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recordID != "record-1" {
+		t.Fatalf("record ID = %q", recordID)
+	}
+	if err := client.DeleteDNSRecord(context.Background(), "zone-delete", "record-1"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"POST /zones/zone-create/dns_records", "DELETE /zones/zone-delete/dns_records/record-1"}
+	if !reflect.DeepEqual(requests, want) {
+		t.Fatalf("requests = %#v, want %#v", requests, want)
+	}
+}

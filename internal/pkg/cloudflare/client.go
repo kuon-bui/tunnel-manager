@@ -19,14 +19,12 @@ import (
 type client struct {
 	api       *cloudflareapi.Client
 	accountID string
-	zoneID    string
 }
 
 func NewCloudflareClient(cfg config.Config) CloudflareClient {
 	return &client{
 		api:       cloudflareapi.NewClient(option.WithAPIToken(cfg.CloudflareAPIToken)),
 		accountID: cfg.CloudflareAccountID,
-		zoneID:    cfg.CloudflareZoneID,
 	}
 }
 
@@ -98,9 +96,9 @@ func (c *client) PutIngressConfig(ctx context.Context, tunnelID, hostname, origi
 	return nil
 }
 
-func (c *client) CreateDNSRecord(ctx context.Context, hostname, tunnelID string) (string, error) {
+func (c *client) CreateDNSRecord(ctx context.Context, zoneID, hostname, tunnelID string) (string, error) {
 	rec, err := c.api.DNS.Records.New(ctx, dns.RecordNewParams{
-		ZoneID: cloudflareapi.F(c.zoneID),
+		ZoneID: cloudflareapi.F(zoneID),
 		Body: dns.CNAMERecordParam{
 			Name:    cloudflareapi.F(hostname),
 			Type:    cloudflareapi.F(dns.CNAMERecordTypeCNAME),
@@ -115,9 +113,9 @@ func (c *client) CreateDNSRecord(ctx context.Context, hostname, tunnelID string)
 	return rec.ID, nil
 }
 
-func (c *client) DeleteDNSRecord(ctx context.Context, dnsRecordID string) error {
+func (c *client) DeleteDNSRecord(ctx context.Context, zoneID, dnsRecordID string) error {
 	_, err := c.api.DNS.Records.Delete(ctx, dnsRecordID, dns.RecordDeleteParams{
-		ZoneID: cloudflareapi.F(c.zoneID),
+		ZoneID: cloudflareapi.F(zoneID),
 	})
 	if err != nil {
 		return fmt.Errorf("cloudflare: delete dns record: %w", err)
