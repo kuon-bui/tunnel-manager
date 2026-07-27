@@ -17,13 +17,13 @@ func TestListZonesFetchesAllPagesAndReturnsSortedActiveZones(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		if r.URL.Path != "/zones" {
-			t.Fatalf("path = %q", r.URL.Path)
+			t.Errorf("path = %q", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("account.id"); got != "account-1" {
-			t.Fatalf("account.id = %q", got)
+			t.Errorf("account.id = %q", got)
 		}
 		if got := r.URL.Query().Get("status"); got != "active" {
-			t.Fatalf("status = %q", got)
+			t.Errorf("status = %q", got)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -42,6 +42,7 @@ func TestListZonesFetchesAllPagesAndReturnsSortedActiveZones(t *testing.T) {
 		api: cloudflareapi.NewClient(
 			option.WithBaseURL(server.URL),
 			option.WithAPIToken("test-token"),
+			option.WithMaxRetries(0),
 		),
 		accountID: "account-1",
 	}
@@ -60,6 +61,32 @@ func TestListZonesFetchesAllPagesAndReturnsSortedActiveZones(t *testing.T) {
 	}
 	if requests != 3 {
 		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestListZonesReturnsPaginationError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Query().Get("page") == "1" {
+			fmt.Fprint(w, `{"success":true,"errors":[],"messages":[],"result":[{"id":"zone-1","name":"example.com","status":"active"}],"result_info":{"page":1,"per_page":50}}`)
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+		fmt.Fprint(w, `{"success":false,"errors":[{"code":1000,"message":"upstream failed"}],"messages":[],"result":[]}`)
+	}))
+	defer server.Close()
+
+	client := &client{
+		api: cloudflareapi.NewClient(
+			option.WithBaseURL(server.URL),
+			option.WithAPIToken("test-token"),
+			option.WithMaxRetries(0),
+		),
+		accountID: "account-1",
+	}
+
+	if _, err := client.ListZones(context.Background()); err == nil {
+		t.Fatal("expected pagination error")
 	}
 }
 

@@ -177,6 +177,9 @@ func TestValidateZoneHostname(t *testing.T) {
 	if _, err := validateZoneHostname([]model.CloudflareZone{{ID: "zone-1", Name: "example.com", Status: "pending"}}, "zone-1", "app.example.com"); !errors.Is(err, ErrInvalidZone) {
 		t.Fatalf("inactive zone err = %v", err)
 	}
+	if _, err := validateZoneHostname(zones, "zone-missing", "app.example.com"); !errors.Is(err, ErrInvalidZone) {
+		t.Fatalf("unknown zone err = %v", err)
+	}
 }
 
 func TestCreateDomainPersistsAndUsesSelectedZone(t *testing.T) {
