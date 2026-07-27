@@ -12,7 +12,6 @@ import (
 type Config struct {
 	CloudflareAPIToken    string
 	CloudflareAccountID   string
-	CloudflareZoneID      string
 	EncryptionKey         []byte
 	DBPath                string
 	LogDir                string
@@ -35,7 +34,6 @@ func Load() (Config, error) {
 	cfg := Config{
 		CloudflareAPIToken:    v.GetString("CLOUDFLARE_API_TOKEN"),
 		CloudflareAccountID:   v.GetString("CLOUDFLARE_ACCOUNT_ID"),
-		CloudflareZoneID:      v.GetString("CLOUDFLARE_ZONE_ID"),
 		DBPath:                v.GetString("DB_PATH"),
 		LogDir:                v.GetString("LOG_DIR"),
 		HTTPAddr:              v.GetString("HTTP_ADDR"),
@@ -53,9 +51,6 @@ func Load() (Config, error) {
 	}
 	if cfg.CloudflareAccountID == "" {
 		return Config{}, fmt.Errorf("CLOUDFLARE_ACCOUNT_ID is required")
-	}
-	if cfg.CloudflareZoneID == "" {
-		return Config{}, fmt.Errorf("CLOUDFLARE_ZONE_ID is required")
 	}
 	if cfg.AdminUsername == "" {
 		return Config{}, fmt.Errorf("ADMIN_USERNAME is required")

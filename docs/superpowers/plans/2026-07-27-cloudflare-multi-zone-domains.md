@@ -1267,7 +1267,7 @@ State explicitly: Goose down is also destructive, and migration does not delete 
 
 - [ ] **Step 5: Verify no runtime global-zone references remain**
 
-Run: `grep -R "CLOUDFLARE_ZONE_ID\|CloudflareZoneID" -- .env.example README.md internal/pkg/config internal/pkg/cloudflare`
+Run: `grep -R --exclude='*_test.go' "CLOUDFLARE_ZONE_ID\|CloudflareZoneID" -- .env.example README.md internal/pkg/config internal/pkg/cloudflare`
 
 Expected: no output. `CloudflareZoneID` remains only in domain model/service/tests, where it represents persisted per-domain ownership.
 

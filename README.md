@@ -42,8 +42,9 @@ requirements, configuration, deployment order, and the exposed HTTP surface.
 
 Prepare these dependencies before starting the service:
 
-- A Cloudflare API token with access to the target account and zone
-- The Cloudflare account ID and zone ID used by the service
+- A Cloudflare API token with Tunnel write access on the target account,
+  `Zone Read`, and `DNS Edit` on every selectable zone
+- The Cloudflare account ID that owns the tunnels and zones
 - A 32-byte hex-encoded encryption key for stored tunnel tokens
 - Writable storage for the SQLite database file and tunnel logs
 - Network reachability to Cloudflare APIs
@@ -69,9 +70,8 @@ openssl rand -hex 32
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Yes | API token used for Cloudflare tunnel and DNS operations. |
-| `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account that owns the tunnels. |
-| `CLOUDFLARE_ZONE_ID` | Yes | Cloudflare DNS zone where CNAME records are created. |
+| `CLOUDFLARE_API_TOKEN` | Yes | API token used for tunnel operations, zone listing, and DNS operations across target zones. |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | Cloudflare account that owns the tunnels and selectable zones. |
 | `ENCRYPTION_KEY` | Yes | Hex-encoded key used to encrypt stored tunnel tokens. Must decode to exactly 32 bytes. |
 | `DB_PATH` | Yes | SQLite database path. Parent directory must be writable. |
 | `LOG_DIR` | Yes | Directory where tunnel process logs are stored. Created on startup if missing. |
@@ -179,6 +179,7 @@ The service exposes these routes:
 | --- | --- | --- |
 | `POST` | `/api/auth/login` | Exchange the admin username/password for a JWT. |
 | `PUT` | `/api/auth/password` | Change the authenticated admin password and rotate all sessions. |
+| `GET` | `/api/cloudflare/zones` | List active Cloudflare zones available for domain creation. |
 | `POST` | `/api/domains` | Create a managed domain and its Cloudflare tunnel resources. |
 | `GET` | `/api/domains` | List managed domains. |
 | `GET` | `/api/domains/:id` | Fetch one managed domain. |
@@ -188,6 +189,29 @@ The service exposes these routes:
 | `POST` | `/api/domains/:id/restart` | Restart the managed `cloudflared` process. |
 | `GET` | `/api/domains/:id/logs` | Return buffered log lines for a managed domain. |
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
+
+Create requests must include the selected Cloudflare zone ID:
+
+```json
+{
+  "hostname": "app.example.com",
+  "originUrl": "http://app:8080",
+  "zoneId": "023e105f4ecef8ad9ca31a8372d0c353"
+}
+```
+
+### Multi-Zone Migration
+
+Migration `00004` is destructive. Follow this sequence:
+
+1. Stop the backend before migration.
+2. Remove old remote tunnels and DNS records that should not survive.
+3. Run `make migrate`; migration `00004` deletes every local domain row.
+4. Start the backend and call `GET /api/cloudflare/zones`.
+5. Recreate domains with returned zone IDs.
+
+Migration does not delete remote Cloudflare resources. Goose down is also
+destructive and deletes domain rows created after migration.
 
 There is no dedicated `/healthz` endpoint in the current codebase.
 `POST /api/auth/login` is the only unauthenticated route and can be used as
