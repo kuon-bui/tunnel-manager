@@ -3,11 +3,15 @@ package cloudflare
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"tunnelmanager/internal/model"
 
 	cloudflareapi "github.com/cloudflare/cloudflare-go/v6"
 	"github.com/cloudflare/cloudflare-go/v6/dns"
 	"github.com/cloudflare/cloudflare-go/v6/option"
 	"github.com/cloudflare/cloudflare-go/v6/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v6/zones"
 
 	"tunnelmanager/internal/pkg/config"
 )
@@ -24,6 +28,38 @@ func NewCloudflareClient(cfg config.Config) CloudflareClient {
 		accountID: cfg.CloudflareAccountID,
 		zoneID:    cfg.CloudflareZoneID,
 	}
+}
+
+func (c *client) ListZones(ctx context.Context) ([]model.CloudflareZone, error) {
+	pager := c.api.Zones.ListAutoPaging(ctx, zones.ZoneListParams{
+		Account: cloudflareapi.F(zones.ZoneListParamsAccount{
+			ID: cloudflareapi.F(c.accountID),
+		}),
+		Page:    cloudflareapi.F(float64(1)),
+		PerPage: cloudflareapi.F(float64(50)),
+		Status:  cloudflareapi.F(zones.ZoneListParamsStatusActive),
+	})
+
+	result := make([]model.CloudflareZone, 0)
+	for pager.Next() {
+		zone := pager.Current()
+		if zone.Status != zones.ZoneStatusActive {
+			continue
+		}
+		result = append(result, model.CloudflareZone{
+			ID:     zone.ID,
+			Name:   strings.TrimSuffix(strings.ToLower(strings.TrimSpace(zone.Name)), "."),
+			Status: string(zone.Status),
+		})
+	}
+	if err := pager.Err(); err != nil {
+		return nil, fmt.Errorf("cloudflare: list zones: %w", err)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
 }
 
 func (c *client) CreateTunnel(ctx context.Context, name string) (TunnelInfo, error) {
