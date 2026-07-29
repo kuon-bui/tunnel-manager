@@ -18,7 +18,7 @@ func (s *domainService) DeleteDomain(ctx context.Context, id string) error {
 			return fmt.Errorf("service: stop process: %w", err)
 		}
 	}
-	if err := s.cf.DeleteDNSRecord(ctx, domain.DNSRecordID); err != nil {
+	if err := s.cf.DeleteDNSRecord(ctx, domain.CloudflareZoneID, domain.DNSRecordID); err != nil {
 		log.Printf("service: delete domain %s: delete dns record %s failed, continuing with best-effort cleanup: %v", id, domain.DNSRecordID, err)
 	}
 	if err := s.cf.DeleteTunnel(ctx, domain.CloudflareTunnelID); err != nil {

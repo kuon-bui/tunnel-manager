@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL string) (domain *model.Domain, err error) {
+func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, zoneID string) (domain *model.Domain, err error) {
 	revertFuncs := []func(){}
 	defer func() {
 		if err != nil {
@@ -22,6 +22,15 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 			}
 		}
 	}()
+
+	zones, err := s.ListCloudflareZones(ctx)
+	if err != nil {
+		return nil, err
+	}
+	hostname, err = validateZoneHostname(zones, zoneID, hostname)
+	if err != nil {
+		return nil, err
+	}
 
 	if existing, _ := s.repo.GetByHostname(ctx, hostname); existing != nil {
 		return nil, fmt.Errorf("service: hostname %q already registered", hostname)
@@ -40,12 +49,12 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		return nil, fmt.Errorf("service: put ingress config: %w", err)
 	}
 
-	dnsRecordID, err := s.cf.CreateDNSRecord(ctx, hostname, tunnel.TunnelID)
+	dnsRecordID, err := s.cf.CreateDNSRecord(ctx, zoneID, hostname, tunnel.TunnelID)
 	if err != nil {
 		return nil, fmt.Errorf("service: create dns record: %w", err)
 	}
 	revertFuncs = append(revertFuncs, func() {
-		_ = s.cf.DeleteDNSRecord(ctx, dnsRecordID)
+		_ = s.cf.DeleteDNSRecord(ctx, zoneID, dnsRecordID)
 	})
 
 	encToken, err := crypto.Encrypt(s.encKey, tunnel.Token)
@@ -68,6 +77,7 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL st
 		ID:                   uuid.NewString(),
 		Hostname:             hostname,
 		OriginURL:            originURL,
+		CloudflareZoneID:     zoneID,
 		CloudflareTunnelID:   tunnel.TunnelID,
 		DNSRecordID:          dnsRecordID,
 		EncryptedTunnelToken: encToken,

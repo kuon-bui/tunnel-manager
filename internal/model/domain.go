@@ -16,6 +16,7 @@ type Domain struct {
 	ID                   string                `bun:"id,pk" json:"id"`
 	Hostname             string                `bun:"hostname,notnull,unique" json:"hostname"`
 	OriginURL            string                `bun:"origin_url,notnull" json:"originUrl"`
+	CloudflareZoneID     string                `bun:"cloudflare_zone_id,notnull" json:"zoneId"`
 	CloudflareTunnelID   string                `bun:"cloudflare_tunnel_id,notnull" json:"cloudflareTunnelId"`
 	DNSRecordID          string                `bun:"dns_record_id,notnull" json:"dnsRecordId"`
 	EncryptedTunnelToken string                `bun:"tunnel_token,notnull" json:"-"`
