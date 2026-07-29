@@ -1,0 +1,24 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../tunnel-manager-fe"
+		}
+	],
+	"settings": {
+		"editor.formatOnSave": true,
+		"editor.codeActionsOnSave": {
+			"source.fixAll.eslint": "explicit"
+		},
+		"[typescript]": {
+			"editor.formatOnSave": false,
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		},
+		"[typescriptreact]": {
+			"editor.formatOnSave": false,
+			"editor.defaultFormatter": "esbenp.prettier-vscode"
+		}
+	}
+}
