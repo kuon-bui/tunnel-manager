@@ -70,6 +70,25 @@ func TestZoneListRequiresJWT(t *testing.T) {
 	}
 }
 
+func TestDomainDetailStreamRequiresJWT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: &DomainHandler{domainService: &fakeRouteDomainService{}},
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
+	route.Setup()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/domains/domain-1/stream", nil)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
 func TestListCloudflareZonesResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
