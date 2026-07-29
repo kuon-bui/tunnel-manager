@@ -2,10 +2,12 @@ package domainroute
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"tunnelmanager/internal/application/api/common"
+	"tunnelmanager/internal/model"
 
 	"github.com/gin-gonic/gin"
 )
@@ -48,14 +50,17 @@ func (h *DomainHandler) streamDomainDetail(c *gin.Context) {
 	ctx := c.Request.Context()
 	lines, updates, cancel, err := h.domainService.SubscribeLogs(ctx, c.Param("id"))
 	if err != nil {
-		common.WriteGetErr(c, err)
+		if errors.Is(err, model.ErrNotFound) {
+			common.WriteGetErr(c, err)
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		}
 		return
 	}
 	defer cancel()
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 	c.Status(http.StatusOK)
 

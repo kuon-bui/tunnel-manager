@@ -84,6 +84,22 @@ func TestStreamDomainDetailReturnsMissingDomainBeforeStreaming(t *testing.T) {
 	}
 }
 
+func TestStreamDomainDetailReturnsGenericInternalErrorBeforeStreaming(t *testing.T) {
+	service := newDetailStreamService()
+	service.logErr = context.DeadlineExceeded
+	h := &DomainHandler{domainService: service}
+	r := gin.New()
+	r.GET("/:id/stream", h.streamDomainDetail)
+	response := httptest.NewRecorder()
+	r.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/domain-1/stream", nil))
+	if response.Code != http.StatusInternalServerError || response.Body.String() != `{"error":"internal server error"}` {
+		t.Fatalf("response = %d %q", response.Code, response.Body.String())
+	}
+	if response.Header().Get("Connection") != "" {
+		t.Fatalf("connection = %q", response.Header().Get("Connection"))
+	}
+}
+
 func TestStreamDomainDetailRefreshesLogsAfterNotification(t *testing.T) {
 	service := newDetailStreamService()
 	_, reader, cancel := openDomainDetailStream(t, service, "domain-1")
