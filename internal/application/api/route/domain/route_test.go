@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"tunnelmanager/internal/model"
+	"tunnelmanager/internal/pkg/config"
 	domainrequest "tunnelmanager/internal/pkg/request/domain"
 	authservice "tunnelmanager/internal/services/auth"
 	domainservice "tunnelmanager/internal/services/domain"
@@ -53,7 +54,12 @@ func TestZoneListRequiresJWT(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	handler := &DomainHandler{domainService: &fakeRouteDomainService{}}
-	route := &DomainRoute{Engine: engine, domainHandler: handler, authService: &fakeRouteAuthService{}}
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: handler,
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
 	route.Setup()
 
 	request := httptest.NewRequest(http.MethodGet, "/api/cloudflare/zones", nil)
