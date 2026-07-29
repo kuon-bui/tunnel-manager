@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/cloudflare"
@@ -39,6 +41,8 @@ type DomainService interface {
 	StopDomain(ctx context.Context, id string) error
 	RestartDomain(ctx context.Context, id string) error
 	Logs(ctx context.Context, id string) ([]string, error)
+	SubscribeLogs(ctx context.Context, id string) ([]string, <-chan struct{}, func(), error)
+	Metrics(ctx context.Context, id string) (string, error)
 	ProxyMetrics(ctx context.Context, id string, w http.ResponseWriter) error
 	Subscribe() (<-chan struct{}, func())
 	HandleSupervisorEvent(ev process.ProcessEvent)
@@ -46,12 +50,13 @@ type DomainService interface {
 }
 
 type domainService struct {
-	repo   domainrepo.DomainRepository
-	cf     cloudflare.CloudflareClient
-	sup    process.ProcessSupervisor
-	ports  *portalloc.Allocator
-	encKey []byte
-	logDir string
+	repo          domainrepo.DomainRepository
+	cf            cloudflare.CloudflareClient
+	sup           process.ProcessSupervisor
+	ports         *portalloc.Allocator
+	encKey        []byte
+	logDir        string
+	metricsClient *http.Client
 
 	mu   sync.Mutex
 	logs map[string]*logbuf.Buffer
@@ -75,14 +80,15 @@ func NewDomainService(
 	processSupervisor process.ProcessSupervisor,
 ) DomainService {
 	service := &domainService{
-		repo:        params.Repo,
-		cf:          params.CF,
-		sup:         params.Supervisor,
-		ports:       params.Ports,
-		encKey:      params.Cfg.EncryptionKey,
-		logDir:      params.Cfg.LogDir,
-		logs:        make(map[string]*logbuf.Buffer),
-		subscribers: make(map[chan struct{}]struct{}),
+		repo:          params.Repo,
+		cf:            params.CF,
+		sup:           params.Supervisor,
+		ports:         params.Ports,
+		encKey:        params.Cfg.EncryptionKey,
+		logDir:        params.Cfg.LogDir,
+		metricsClient: &http.Client{Timeout: 3 * time.Second},
+		logs:          make(map[string]*logbuf.Buffer),
+		subscribers:   make(map[chan struct{}]struct{}),
 	}
 	processSupervisor.SetEventHandler(service.HandleSupervisorEvent)
 	return service
@@ -101,21 +107,63 @@ func (s *domainService) Logs(ctx context.Context, id string) ([]string, error) {
 	return buf.Lines(), nil
 }
 
-func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.ResponseWriter) error {
+func (s *domainService) logBuffer(id string) (*logbuf.Buffer, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if buf := s.logs[id]; buf != nil {
+		return buf, nil
+	}
+	buf, err := logbuf.NewBuffer(filepath.Join(s.logDir, id+".log"), 500)
+	if err != nil {
+		return nil, err
+	}
+	s.logs[id] = buf
+	return buf, nil
+}
+
+func (s *domainService) SubscribeLogs(ctx context.Context, id string) ([]string, <-chan struct{}, func(), error) {
+	if _, err := s.repo.Get(ctx, id); err != nil {
+		return nil, nil, nil, err
+	}
+	buf, err := s.logBuffer(id)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("service: open log buffer: %w", err)
+	}
+	lines, updates, cancel := buf.SnapshotAndSubscribe()
+	return lines, updates, cancel, nil
+}
+
+func (s *domainService) Metrics(ctx context.Context, id string) (string, error) {
 	domain, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("http://localhost:%d/metrics", domain.MetricsPort), nil)
+	if err != nil {
+		return "", fmt.Errorf("service: create metrics request: %w", err)
+	}
+	resp, err := s.metricsClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("service: fetch metrics: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
+		return "", fmt.Errorf("service: metrics endpoint returned status %d", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("service: read metrics: %w", err)
+	}
+	return string(body), nil
+}
+
+func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.ResponseWriter) error {
+	metrics, err := s.Metrics(ctx, id)
 	if err != nil {
 		return err
 	}
-	resp, err := http.Get(fmt.Sprintf("http://localhost:%d/metrics", domain.MetricsPort))
-	if err != nil {
-		return fmt.Errorf("service: fetch metrics: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("service: metrics endpoint returned status %d", resp.StatusCode)
-	}
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	_, err = io.Copy(w, resp.Body)
+	_, err = io.WriteString(w, metrics)
 	return err
 }
 

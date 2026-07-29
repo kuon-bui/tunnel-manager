@@ -3,12 +3,10 @@ package domainservice
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/crypto"
-	"tunnelmanager/internal/pkg/logbuf"
 
 	"github.com/google/uuid"
 )
@@ -101,20 +99,12 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, z
 }
 
 func (s *domainService) spawn(domain *model.Domain, plaintextToken string) error {
-	logPath := filepath.Join(s.logDir, domain.ID+".log")
-	logWriter, err := logbuf.NewBuffer(logPath, 500)
+	logWriter, err := s.logBuffer(domain.ID)
 	if err != nil {
 		return fmt.Errorf("open log buffer: %w", err)
 	}
 	if err := s.sup.Start(domain.ID, plaintextToken, domain.MetricsPort, logWriter); err != nil {
-		_ = logWriter.Close()
 		return err
 	}
-	s.mu.Lock()
-	if old, ok := s.logs[domain.ID]; ok {
-		_ = old.Close()
-	}
-	s.logs[domain.ID] = logWriter
-	s.mu.Unlock()
 	return nil
 }
