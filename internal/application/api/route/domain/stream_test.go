@@ -200,7 +200,11 @@ func TestStreamDomainsRejectsInvalidQueryBeforeStreaming(t *testing.T) {
 	r.GET("/stream", h.streamDomains)
 	server := httptest.NewServer(r)
 	defer server.Close()
-	resp, err := http.Get(server.URL + "/stream?pageSize=bad")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/stream?pageSize=bad", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +225,11 @@ func TestStreamDomainsReturnsInitialListErrorBeforeStreaming(t *testing.T) {
 	r.GET("/stream", h.streamDomains)
 	server := httptest.NewServer(r)
 	defer server.Close()
-	resp, err := http.Get(server.URL + "/stream")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL+"/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

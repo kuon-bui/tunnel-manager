@@ -29,6 +29,29 @@ func TestSetWritesSecureHTTPOnlyStrictCookie(t *testing.T) {
 	}
 }
 
+func TestSetClearsCookieForExpiredToken(t *testing.T) {
+	expiresAt := time.Now().Add(-time.Minute).UTC().Truncate(time.Second)
+	res := httptest.NewRecorder()
+
+	Set(res, "jwt", expiresAt, false)
+
+	cookie := res.Result().Cookies()[0]
+	if cookie.Value != "" || cookie.MaxAge >= 0 || cookie.Expires.After(time.Now()) {
+		t.Fatalf("clear attributes = %#v", cookie)
+	}
+}
+
+func TestSetKeepsMinimumLifetimeForUnexpiredToken(t *testing.T) {
+	res := httptest.NewRecorder()
+
+	Set(res, "jwt", time.Now().Add(500*time.Millisecond), false)
+
+	cookie := res.Result().Cookies()[0]
+	if cookie.Value != "jwt" || cookie.MaxAge != 1 {
+		t.Fatalf("cookie = %#v", cookie)
+	}
+}
+
 func TestClearExpiresCookie(t *testing.T) {
 	res := httptest.NewRecorder()
 

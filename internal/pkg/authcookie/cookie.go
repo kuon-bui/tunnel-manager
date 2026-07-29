@@ -8,7 +8,12 @@ import (
 const Name = "tunnel_manager_token"
 
 func Set(w http.ResponseWriter, token string, expiresAt time.Time, secure bool) {
-	maxAge := int(time.Until(expiresAt).Seconds())
+	remaining := time.Until(expiresAt)
+	if remaining <= 0 {
+		Clear(w, secure)
+		return
+	}
+	maxAge := int(remaining.Seconds())
 	if maxAge < 1 {
 		maxAge = 1
 	}
