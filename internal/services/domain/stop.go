@@ -16,5 +16,5 @@ func (s *domainService) StopDomain(ctx context.Context, id string) error {
 		return err
 	}
 	domain.Status = constant.StatusStopped
-	return s.repo.Update(ctx, domain)
+	return s.update(ctx, domain)
 }

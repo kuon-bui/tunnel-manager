@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"tunnelmanager/internal/pkg/authcookie"
 	authrequest "tunnelmanager/internal/pkg/request/auth"
 	authservice "tunnelmanager/internal/services/auth"
 
@@ -27,6 +28,7 @@ func (h *AuthHandler) login(c *gin.Context) {
 		return
 	}
 
+	authcookie.Set(c.Writer, token, expiresAt, h.cfg.AuthCookieSecure)
 	c.JSON(http.StatusOK, gin.H{
 		"token":     token,
 		"expiresAt": expiresAt,

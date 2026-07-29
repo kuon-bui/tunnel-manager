@@ -1,6 +1,7 @@
 package domainroute
 
 import (
+	"tunnelmanager/internal/pkg/config"
 	"tunnelmanager/internal/pkg/middleware"
 	authservice "tunnelmanager/internal/services/auth"
 
@@ -12,6 +13,7 @@ type DomainRoute struct {
 	*gin.Engine
 	domainHandler *DomainHandler
 	authService   authservice.AuthService
+	cfg           config.Config
 }
 
 type DomainRouteParams struct {
@@ -20,6 +22,7 @@ type DomainRouteParams struct {
 	Engine        *gin.Engine
 	DomainHandler *DomainHandler
 	AuthService   authservice.AuthService
+	Cfg           config.Config
 }
 
 func NewDomainRoute(params DomainRouteParams) *DomainRoute {
@@ -27,14 +30,16 @@ func NewDomainRoute(params DomainRouteParams) *DomainRoute {
 		Engine:        params.Engine,
 		domainHandler: params.DomainHandler,
 		authService:   params.AuthService,
+		cfg:           params.Cfg,
 	}
 }
 
 func (r *DomainRoute) Setup() {
 
-	g := r.Group("/api/domains", middleware.JWTAuth(r.authService))
+	g := r.Group("/api/domains", middleware.JWTAuth(r.authService, r.cfg))
 	g.POST("", r.domainHandler.createDomain)
 	g.GET("", r.domainHandler.listDomains)
+	g.GET("/stream", r.domainHandler.streamDomains)
 	g.GET("/:id", r.domainHandler.getDomain)
 	g.PUT("/:id", r.domainHandler.updateDomain)
 	g.DELETE("/:id", r.domainHandler.deleteDomain)

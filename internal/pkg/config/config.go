@@ -25,11 +25,13 @@ type Config struct {
 	AdminPassword         string
 	JWTSecret             []byte
 	JWTTTL                time.Duration
+	AuthCookieSecure      bool
 }
 
 func Load() (Config, error) {
 	v := viper.New()
 	v.AutomaticEnv()
+	v.SetDefault("AUTH_COOKIE_SECURE", true)
 
 	cfg := Config{
 		CloudflareAPIToken:    v.GetString("CLOUDFLARE_API_TOKEN"),
@@ -44,6 +46,7 @@ func Load() (Config, error) {
 		CORSAllowedOrigin:     v.GetString("CORS_ALLOWED_ORIGIN"),
 		AdminUsername:         v.GetString("ADMIN_USERNAME"),
 		AdminPassword:         v.GetString("ADMIN_PASSWORD"),
+		AuthCookieSecure:      v.GetBool("AUTH_COOKIE_SECURE"),
 	}
 
 	if cfg.CloudflareAPIToken == "" {
