@@ -47,7 +47,8 @@ func (r *DomainRoute) Setup() {
 	g.POST("/:id/restart", r.domainHandler.restartDomain)
 	g.GET("/:id/logs", r.domainHandler.getLogs)
 	g.GET("/:id/metrics", r.domainHandler.getMetrics)
+	g.GET("/:id/stream", r.domainHandler.streamDomainDetail)
 
-	cloudflare := r.Group("/api/cloudflare", middleware.JWTAuth(r.authService))
+	cloudflare := r.Group("/api/cloudflare", middleware.JWTAuth(r.authService, r.cfg))
 	cloudflare.GET("/zones", r.domainHandler.listCloudflareZones)
 }

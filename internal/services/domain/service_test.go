@@ -4,7 +4,13 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/cloudflare"
@@ -247,4 +253,95 @@ func TestDeleteDomainUsesPersistedZone(t *testing.T) {
 	if cf.deleteDNSZoneID != "zone-2" || cf.deletedDNSRecordID != "record-2" {
 		t.Fatalf("delete zone/record = %q/%q", cf.deleteDNSZoneID, cf.deletedDNSRecordID)
 	}
+}
+
+func TestSubscribeLogsUsesStableBufferBeforeSpawn(t *testing.T) {
+	repo := newFakeDomainRepo(&model.Domain{ID: "domain-1"})
+	service := newTestDomainService(t, repo, &fakeCloudflareClient{})
+
+	initial, updates, cancel, err := service.SubscribeLogs(t.Context(), "domain-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	if len(initial) != 0 {
+		t.Fatalf("initial = %#v", initial)
+	}
+	buf := service.logs["domain-1"]
+	if buf == nil {
+		t.Fatal("stable log buffer not created")
+	}
+	if _, err := buf.Write([]byte("connected\n")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-updates:
+	case <-time.After(time.Second):
+		t.Fatal("log subscriber not notified")
+	}
+}
+
+func TestSubscribeLogsRejectsMissingDomain(t *testing.T) {
+	service := newTestDomainService(t, newFakeDomainRepo(), &fakeCloudflareClient{})
+	_, _, _, err := service.SubscribeLogs(t.Context(), "missing")
+	if !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestMetricsReturnsPrometheusText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "# HELP tunnel_up\n")
+	}))
+	defer server.Close()
+
+	service := newTestDomainService(t, newFakeDomainRepo(&model.Domain{
+		ID:          "domain-1",
+		MetricsPort: testServerPort(t, server.URL),
+	}), &fakeCloudflareClient{})
+	metrics, err := service.Metrics(t.Context(), "domain-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics != "# HELP tunnel_up\n" {
+		t.Fatalf("metrics = %q", metrics)
+	}
+}
+
+func TestMetricsPropagatesCancellation(t *testing.T) {
+	started := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		close(started)
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	service := newTestDomainService(t, newFakeDomainRepo(&model.Domain{
+		ID:          "domain-1",
+		MetricsPort: testServerPort(t, server.URL),
+	}), &fakeCloudflareClient{})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		_, err := service.Metrics(ctx, "domain-1")
+		done <- err
+	}()
+	<-started
+	cancel()
+	if err := <-done; !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func testServerPort(t *testing.T, rawURL string) int {
+	t.Helper()
+	_, portText, err := net.SplitHostPort(strings.TrimPrefix(rawURL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
 }

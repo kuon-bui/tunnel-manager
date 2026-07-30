@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"tunnelmanager/internal/model"
+	"tunnelmanager/internal/pkg/config"
 	domainrequest "tunnelmanager/internal/pkg/request/domain"
 	authservice "tunnelmanager/internal/services/auth"
 	domainservice "tunnelmanager/internal/services/domain"
@@ -53,10 +54,34 @@ func TestZoneListRequiresJWT(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	handler := &DomainHandler{domainService: &fakeRouteDomainService{}}
-	route := &DomainRoute{Engine: engine, domainHandler: handler, authService: &fakeRouteAuthService{}}
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: handler,
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
 	route.Setup()
 
 	request := httptest.NewRequest(http.MethodGet, "/api/cloudflare/zones", nil)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestDomainDetailStreamRequiresJWT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: &DomainHandler{domainService: &fakeRouteDomainService{}},
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
+	route.Setup()
+
+	request := httptest.NewRequest(http.MethodGet, "/api/domains/domain-1/stream", nil)
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {

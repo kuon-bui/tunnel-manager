@@ -195,6 +195,7 @@ The service exposes these routes:
 | `POST` | `/api/domains/:id/restart` | Restart the managed `cloudflared` process. |
 | `GET` | `/api/domains/:id/logs` | Return buffered log lines for a managed domain. |
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
+| `GET` | `/api/domains/:id/stream` | Stream complete log snapshots and Prometheus metric text using SSE. |
 
 Create requests must include the selected Cloudflare zone ID:
 
@@ -270,6 +271,13 @@ sent every 15 seconds. If a snapshot reload fails, the server sends a generic
 `error` event and closes the stream. Update fan-out is process-local; use shared
 pub/sub before running multiple backend replicas that must notify each other's
 SSE clients.
+
+`GET /api/domains/:id/stream` immediately sends `logs` and either `metrics` or
+`metrics-error`. Log events contain `{"items":[]}` complete snapshots capped at
+500 lines. Metric events contain `{"text":"..."}` and refresh every 4 seconds;
+temporary metric failures emit `{"message":"metrics unavailable"}` without
+closing the stream. The stream sends the same 15-second heartbeat and does not
+support replay or event IDs.
 
 ## Operational Notes
 

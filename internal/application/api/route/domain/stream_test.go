@@ -21,14 +21,22 @@ import (
 
 type fakeDomainService struct {
 	domainservice.DomainService
-	mu          sync.Mutex
-	domains     []*model.Domain
-	nextCursor  string
-	listErr     error
-	lastRequest domainrequest.ListDomainRequest
-	updates     chan struct{}
-	cancelled   chan struct{}
-	cancelOnce  sync.Once
+	mu            sync.Mutex
+	domains       []*model.Domain
+	nextCursor    string
+	listErr       error
+	lastRequest   domainrequest.ListDomainRequest
+	updates       chan struct{}
+	cancelled     chan struct{}
+	cancelOnce    sync.Once
+	logLines      []string
+	logUpdates    chan struct{}
+	logCancelled  chan struct{}
+	logCancelOnce sync.Once
+	logErr        error
+	metricText    string
+	metricErr     error
+	metricCalls   int
 }
 
 func (f *fakeDomainService) ListDomains(_ context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error) {
@@ -40,6 +48,28 @@ func (f *fakeDomainService) ListDomains(_ context.Context, req domainrequest.Lis
 
 func (f *fakeDomainService) Subscribe() (<-chan struct{}, func()) {
 	return f.updates, func() { f.cancelOnce.Do(func() { close(f.cancelled) }) }
+}
+
+func (f *fakeDomainService) SubscribeLogs(context.Context, string) ([]string, <-chan struct{}, func(), error) {
+	if f.logErr != nil {
+		return nil, nil, nil, f.logErr
+	}
+	return append([]string(nil), f.logLines...), f.logUpdates, func() {
+		f.logCancelOnce.Do(func() { close(f.logCancelled) })
+	}, nil
+}
+
+func (f *fakeDomainService) Logs(context.Context, string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.logLines...), f.logErr
+}
+
+func (f *fakeDomainService) Metrics(context.Context, string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.metricCalls++
+	return f.metricText, f.metricErr
 }
 
 func (f *fakeDomainService) setList(domains []*model.Domain, err error) {
