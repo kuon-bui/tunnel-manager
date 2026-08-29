@@ -16,7 +16,7 @@ func (h *DomainHandler) createDomain(c *gin.Context) {
 		return
 	}
 
-	domain, err := h.domainService.CreateDomain(c.Request.Context(), req.Hostname, req.OriginURL, req.ZoneID)
+	domain, err := h.domainService.CreateDomain(c.Request.Context(), req.Hostname, req.ZoneID, req.Routes)
 	if err != nil {
 		if errors.Is(err, domainservice.ErrCloudflareUnavailable) {
 			c.JSON(http.StatusBadGateway, gin.H{"error": "Cloudflare unavailable"})

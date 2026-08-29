@@ -27,4 +27,5 @@ type Domain struct {
 	LastError            string                `bun:"last_error" json:"lastError"`
 	CreatedAt            time.Time             `bun:"created_at,notnull" json:"createdAt"`
 	UpdatedAt            time.Time             `bun:"updated_at,notnull" json:"updatedAt"`
+	Routes               []DomainRoute         `bun:"-" json:"routes"`
 }

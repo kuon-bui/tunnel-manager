@@ -7,11 +7,12 @@ import (
 	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/crypto"
+	domainrequest "tunnelmanager/internal/pkg/request/domain"
 
 	"github.com/google/uuid"
 )
 
-func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, zoneID string) (domain *model.Domain, err error) {
+func (s *domainService) CreateDomain(ctx context.Context, hostname, zoneID string, inputs []domainrequest.RouteInput) (domain *model.Domain, err error) {
 	revertFuncs := []func(){}
 	defer func() {
 		if err != nil {
@@ -34,6 +35,13 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, z
 		return nil, fmt.Errorf("service: hostname %q already registered", hostname)
 	}
 
+	now := time.Now().UTC()
+	domainID := uuid.NewString()
+	routes, defaultOrigin, err := normalizeRoutes(domainID, inputs, now)
+	if err != nil {
+		return nil, err
+	}
+
 	tunnel, err := s.cf.CreateTunnel(ctx, hostname)
 	if err != nil {
 		return nil, fmt.Errorf("service: create tunnel: %w", err)
@@ -43,8 +51,13 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, z
 		_ = s.cf.DeleteTunnel(ctx, tunnel.TunnelID)
 	})
 
-	if err := s.cf.PutIngressConfig(ctx, tunnel.TunnelID, hostname, originURL); err != nil {
-		return nil, fmt.Errorf("service: put ingress config: %w", err)
+	if err := s.proxy.CommitDomain(domainID, hostname, routes); err != nil {
+		return nil, fmt.Errorf("service: prepare ingress proxy: %w", err)
+	}
+	revertFuncs = append(revertFuncs, func() { s.proxy.RemoveDomain(domainID) })
+
+	if err := s.cf.PutIngressConfig(ctx, tunnel.TunnelID, hostname, s.cloudflareRules(routes)); err != nil {
+		return nil, fmt.Errorf("%w: put ingress config", ErrCloudflareUnavailable)
 	}
 
 	dnsRecordID, err := s.cf.CreateDNSRecord(ctx, zoneID, hostname, tunnel.TunnelID)
@@ -70,11 +83,10 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, z
 		return nil, fmt.Errorf("service: allocate metrics port: %w", err)
 	}
 
-	now := time.Now().UTC()
 	domain = &model.Domain{
-		ID:                   uuid.NewString(),
+		ID:                   domainID,
 		Hostname:             hostname,
-		OriginURL:            originURL,
+		OriginURL:            defaultOrigin,
 		CloudflareZoneID:     zoneID,
 		CloudflareTunnelID:   tunnel.TunnelID,
 		DNSRecordID:          dnsRecordID,
@@ -83,6 +95,7 @@ func (s *domainService) CreateDomain(ctx context.Context, hostname, originURL, z
 		MetricsPort:          port,
 		CreatedAt:            now,
 		UpdatedAt:            now,
+		Routes:               routes,
 	}
 	if err := s.create(ctx, domain); err != nil {
 		return nil, fmt.Errorf("service: persist domain: %w", err)

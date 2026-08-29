@@ -2,6 +2,7 @@ package lifecycle
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	stdhttp "net/http"
@@ -12,6 +13,7 @@ import (
 
 	"tunnelmanager/internal/pkg/common"
 	appconfig "tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/ingressproxy"
 )
 
 type Reconciler interface {
@@ -31,6 +33,7 @@ type LifecycleRunner struct {
 	chmod         func(string, os.FileMode) error
 	startServer   func(*stdhttp.Server) error
 	routes        []common.Route `group:"routes"`
+	proxy         ingressproxy.Proxy
 }
 
 type LifecycleParams struct {
@@ -41,6 +44,7 @@ type LifecycleParams struct {
 	Bootstrappers []Bootstrapper `group:"bootstrappers"`
 	Server        *stdhttp.Server
 	Routes        []common.Route `group:"routes"`
+	Proxy         ingressproxy.Proxy
 }
 
 func NewLifecycleRunner(params LifecycleParams) *LifecycleRunner {
@@ -50,6 +54,7 @@ func NewLifecycleRunner(params LifecycleParams) *LifecycleRunner {
 		bootstrappers: params.Bootstrappers,
 		server:        params.Server,
 		routes:        params.Routes,
+		proxy:         params.Proxy,
 		mkdirAll:      os.MkdirAll,
 		chmod:         os.Chmod,
 		startServer: func(server *stdhttp.Server) error {
@@ -82,20 +87,28 @@ func (r *LifecycleRunner) Register(lc fx.Lifecycle) {
 			if err := r.chmod(r.cfg.DBPath, 0o600); err != nil {
 				return err
 			}
+			if err := r.proxy.Start(); err != nil {
+				return err
+			}
 			if err := r.service.Reconcile(ctx); err != nil {
-				log.Printf("reconcile: %v", err)
+				_ = r.proxy.Shutdown(ctx)
+				return err
 			}
 
 			for _, route := range r.routes {
 				route.Setup()
 			}
 
-			return r.startServer(r.server)
+			if err := r.startServer(r.server); err != nil {
+				_ = r.proxy.Shutdown(ctx)
+				return err
+			}
+			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			shutdownCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
-			return r.server.Shutdown(shutdownCtx)
+			return errors.Join(r.server.Shutdown(shutdownCtx), r.proxy.Shutdown(shutdownCtx))
 		},
 	})
 }

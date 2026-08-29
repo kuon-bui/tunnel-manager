@@ -25,6 +25,7 @@
     "Infof",
     "Infoln",
     "Infow",
+    "ingressproxy",
     "logbuf",
     "modernc",
     "notnull",

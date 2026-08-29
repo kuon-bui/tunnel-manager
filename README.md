@@ -22,7 +22,7 @@ metrics under one backend.
 Tunnel Manager Backend is a Go service built for operating Cloudflare
 tunnel-backed domains through an internal API.
 
-In practice, it takes a hostname and origin URL, creates the required
+In practice, it takes a hostname and a set of path-to-origin routes, creates the required
 Cloudflare tunnel and DNS configuration, starts a managed `cloudflared`
 process, and stores the resulting state in SQLite so that the service can
 reconcile and continue operating across restarts.
@@ -31,6 +31,8 @@ At runtime it:
 
 - creates and deletes Cloudflare tunnels and DNS records
 - starts and stops `cloudflared` processes for managed domains
+- routes one hostname to multiple HTTP services by literal path prefix
+- optionally removes a matched prefix through a loopback reverse proxy
 - stores service state in SQLite
 - exposes operational endpoints under `/api/domains`
 - proxies per-domain logs and Prometheus-style metrics for troubleshooting
@@ -86,6 +88,7 @@ openssl rand -hex 32
 | `JWT_SECRET` | Yes | Hex-encoded key used to sign JWTs. Must decode to at least 32 bytes. |
 | `JWT_TTL` | No | Access token lifetime, parsed as a Go duration (for example `168h`). Defaults to `168h` (7 days) when unset. |
 | `AUTH_COOKIE_SECURE` | No | Whether the authentication cookie requires HTTPS. Defaults to `true`; set to `false` only for local HTTP development. |
+| `INGRESS_PROXY_ADDR` | No | Loopback IP and port used only by routes with `stripPrefix: true`. Defaults to `127.0.0.1:20080`; public bind addresses are rejected. |
 
 ### Example Host Configuration
 
@@ -95,6 +98,7 @@ openssl rand -hex 32
 DB_PATH=./data/tunnel-manager.db
 LOG_DIR=./data/logs
 HTTP_ADDR=:8080
+INGRESS_PROXY_ADDR=127.0.0.1:20080
 METRICS_PORT_RANGE_START=20500
 METRICS_PORT_RANGE_END=20999
 CLOUDFLARED_BINARY=cloudflared
@@ -189,7 +193,8 @@ The service exposes these routes:
 | `GET` | `/api/domains` | List managed domains. |
 | `GET` | `/api/domains/stream` | Stream filtered domain-list snapshots using SSE. |
 | `GET` | `/api/domains/:id` | Fetch one managed domain. |
-| `PUT` | `/api/domains/:id` | Update the origin URL for a managed domain. |
+| `PUT` | `/api/domains/:id/routes` | Replace all path routes for a managed domain. |
+| `PUT` | `/api/domains/:id` | Deprecated compatibility endpoint that updates only the `/` route origin. |
 | `DELETE` | `/api/domains/:id` | Delete a managed domain and its Cloudflare resources. |
 | `POST` | `/api/domains/:id/stop` | Stop the managed `cloudflared` process. |
 | `POST` | `/api/domains/:id/restart` | Restart the managed `cloudflared` process. |
@@ -202,10 +207,51 @@ Create requests must include the selected Cloudflare zone ID:
 ```json
 {
   "hostname": "app.example.com",
-  "originUrl": "http://app:8080",
-  "zoneId": "023e105f4ecef8ad9ca31a8372d0c353"
+  "zoneId": "023e105f4ecef8ad9ca31a8372d0c353",
+  "routes": [
+    {
+      "path": "/api",
+      "originUrl": "http://api:8080",
+      "stripPrefix": true
+    },
+    {
+      "path": "/admin",
+      "originUrl": "http://admin:3000",
+      "stripPrefix": false
+    },
+    {
+      "path": "/",
+      "originUrl": "http://frontend:5173",
+      "stripPrefix": false
+    }
+  ]
 }
 ```
+
+Replace the complete route set with `PUT /api/domains/:id/routes`:
+
+```json
+{
+  "routes": [
+    {"path": "/api", "originUrl": "http://api:8080", "stripPrefix": true},
+    {"path": "/", "originUrl": "http://frontend:5173", "stripPrefix": false}
+  ]
+}
+```
+
+Routes are literal prefixes, normalized without a trailing slash, and ordered
+most-specific first. Every domain must have exactly one `/` fallback route;
+duplicate paths and more than 50 routes are rejected. Prefix matching observes
+segment boundaries, so `/api` matches `/api` and `/api/users` but not
+`/apiary`.
+
+With `stripPrefix: false`, Cloudflare forwards the original path directly to
+the origin. With `stripPrefix: true`, the loopback proxy turns both `/api` and
+`/api/` into `/`, and `/api/users?id=1` into `/users?id=1`. It preserves the
+query string and incoming `Host`, and sends `X-Forwarded-Host`,
+`X-Forwarded-Proto`, and `X-Forwarded-Prefix`. The `/` route cannot strip its
+prefix. Origin URLs must use HTTP or HTTPS and cannot contain credentials,
+queries, fragments, or a non-root path.
 
 ### Multi-Zone Migration
 
@@ -219,6 +265,13 @@ Migration `00004` is destructive. Follow this sequence:
 
 Migration does not delete remote Cloudflare resources. Goose down is also
 destructive and deletes domain rows created after migration.
+
+Migration `00005` is non-destructive. It creates `domain_routes`, enables
+SQLite foreign-key enforcement in the application connection, and backfills a
+non-stripping `/` route from every existing domain's `origin_url`. Stop the
+backend, run `make migrate`, and then restart it; existing tunnels, DNS records,
+and domain rows are retained. Rolling migration `00005` down removes the route
+table, so back up the database before downgrade.
 
 There is no dedicated `/healthz` endpoint in the current codebase.
 `POST /api/auth/login` and `POST /api/auth/logout` are unauthenticated routes.
@@ -284,6 +337,10 @@ support replay or event IDs.
 - Service state is persisted in SQLite at `DB_PATH`.
 - Tunnel tokens are stored encrypted and are not returned in the HTTP responses.
 - The service creates `LOG_DIR` on startup if it does not already exist.
+- The strip-prefix proxy listens only on `INGRESS_PROXY_ADDR`; configure
+  stripped origins to a different endpoint to avoid a proxy loop.
+- In a container, `localhost` origins refer to that container. Use service DNS
+  names or an explicit host gateway for origins outside it.
 - Each managed `cloudflared` process gets a local metrics port from the
   configured range.
 - On startup, invalid Cloudflare credentials, an invalid encryption key, an
@@ -297,7 +354,8 @@ These paths matter most during deployment and operations:
 
 - `cmd/server/main.go`: application entrypoint
 - `migrations/`: Goose SQL migrations
-- `internal/interfaces/http/`: API routes and handlers
-- `internal/infrastructure/config/config.go`: environment loading and validation
+- `internal/application/api/route/`: API routes and handlers
+- `internal/pkg/config/config.go`: environment loading and validation
+- `internal/pkg/ingressproxy/`: loopback prefix-stripping reverse proxy
 - `Dockerfile`: container build and bundled `cloudflared`
 - `Makefile`: run, build, test, and migration commands

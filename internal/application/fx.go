@@ -3,6 +3,7 @@ package application
 import (
 	"tunnelmanager/internal/pkg/cloudflare"
 	"tunnelmanager/internal/pkg/config"
+	"tunnelmanager/internal/pkg/ingressproxy"
 	"tunnelmanager/internal/pkg/portalloc"
 	"tunnelmanager/internal/pkg/process"
 	"tunnelmanager/internal/pkg/repo"
@@ -15,6 +16,7 @@ import (
 var Module = fx.Module(
 	"application",
 	config.Module,
+	ingressproxy.Module,
 	sqlite.Module,
 	cloudflare.Module,
 	portalloc.Module,

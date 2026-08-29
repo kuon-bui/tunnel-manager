@@ -15,6 +15,9 @@ type DomainRepository interface {
 	ListAll(ctx context.Context, statuses ...constant.DomainStatus) ([]*model.Domain, error)
 	Get(ctx context.Context, id string) (*model.Domain, error)
 	GetByHostname(ctx context.Context, hostname string) (*model.Domain, error)
+	ListRoutes(ctx context.Context, domainID string) ([]model.DomainRoute, error)
+	ListRoutesByDomainIDs(ctx context.Context, domainIDs []string) (map[string][]model.DomainRoute, error)
+	ReplaceRoutes(ctx context.Context, domainID, defaultOriginURL string, routes []model.DomainRoute) error
 	Update(ctx context.Context, domain *model.Domain) error
 	UpdateBulk(ctx context.Context, domains []*model.Domain) error
 	Delete(ctx context.Context, id string) error

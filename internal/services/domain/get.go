@@ -6,5 +6,13 @@ import (
 )
 
 func (s *domainService) GetDomain(ctx context.Context, id string) (*model.Domain, error) {
-	return s.repo.Get(ctx, id)
+	domain, err := s.repo.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	domain.Routes, err = s.repo.ListRoutes(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return domain, nil
 }
