@@ -10,7 +10,7 @@ import (
 )
 
 func NewSQLDB(cfg config.Config) (*bun.DB, error) {
-	db, err := sql.Open("sqlite", "file:"+cfg.DBPath+"?cache=shared&mode=rwc")
+	db, err := sql.Open("sqlite", "file:"+cfg.DBPath+"?cache=shared&mode=rwc&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}

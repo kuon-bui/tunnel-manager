@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -61,6 +62,50 @@ func TestListZonesFetchesAllPagesAndReturnsSortedActiveZones(t *testing.T) {
 	}
 	if requests != 3 {
 		t.Fatalf("requests = %d, want 3", requests)
+	}
+}
+
+func TestPutIngressConfigWritesOrderedRulesAndCatchAll(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPut || r.URL.Path != "/accounts/account-1/cfd_tunnel/tunnel-1/configurations" {
+			t.Fatalf("request = %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"success":true,"errors":[],"messages":[],"result":{"config":{"ingress":[]},"tunnel_id":"tunnel-1","version":1}}`)
+	}))
+	defer server.Close()
+
+	client := &client{
+		api:       cloudflareapi.NewClient(option.WithBaseURL(server.URL), option.WithAPIToken("test-token"), option.WithMaxRetries(0)),
+		accountID: "account-1",
+	}
+	if err := client.PutIngressConfig(context.Background(), "tunnel-1", "app.example.com", []IngressRule{
+		{Path: `^/api(/.*)?$`, Service: "http://127.0.0.1:20080"},
+		{Service: "http://localhost:5173"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	configBody := body["config"].(map[string]any)
+	ingress := configBody["ingress"].([]any)
+	if len(ingress) != 3 {
+		t.Fatalf("ingress count = %d", len(ingress))
+	}
+	first := ingress[0].(map[string]any)
+	root := ingress[1].(map[string]any)
+	catchAll := ingress[2].(map[string]any)
+	if first["hostname"] != "app.example.com" || first["path"] != `^/api(/.*)?$` || first["service"] != "http://127.0.0.1:20080" {
+		t.Fatalf("first ingress = %#v", first)
+	}
+	if _, exists := root["path"]; exists || root["service"] != "http://localhost:5173" {
+		t.Fatalf("root ingress = %#v", root)
+	}
+	if len(catchAll) != 1 || catchAll["service"] != "http_status:404" {
+		t.Fatalf("catch-all ingress = %#v", catchAll)
 	}
 }
 

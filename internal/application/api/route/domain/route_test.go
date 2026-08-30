@@ -24,13 +24,14 @@ type fakeRouteDomainService struct {
 	zonesErr error
 	created  *model.Domain
 	domains  []*model.Domain
+	replaced *model.Domain
 }
 
 func (f *fakeRouteDomainService) ListCloudflareZones(context.Context) ([]model.CloudflareZone, error) {
 	return f.zones, f.zonesErr
 }
 
-func (f *fakeRouteDomainService) CreateDomain(context.Context, string, string, string) (*model.Domain, error) {
+func (f *fakeRouteDomainService) CreateDomain(context.Context, string, string, []domainrequest.RouteInput) (*model.Domain, error) {
 	return f.created, f.zonesErr
 }
 
@@ -40,6 +41,10 @@ func (f *fakeRouteDomainService) GetDomain(context.Context, string) (*model.Doma
 
 func (f *fakeRouteDomainService) ListDomains(context.Context, domainrequest.ListDomainRequest) ([]*model.Domain, string, error) {
 	return f.domains, "", nil
+}
+
+func (f *fakeRouteDomainService) ReplaceRoutes(context.Context, string, []domainrequest.RouteInput) (*model.Domain, error) {
+	return f.replaced, f.zonesErr
 }
 
 type fakeRouteAuthService struct {
@@ -89,6 +94,26 @@ func TestDomainDetailStreamRequiresJWT(t *testing.T) {
 	}
 }
 
+func TestReplaceRoutesRequiresJWT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: &DomainHandler{domainService: &fakeRouteDomainService{}},
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
+	route.Setup()
+
+	request := httptest.NewRequest(http.MethodPut, "/api/domains/domain-1/routes", bytes.NewBufferString(`{"routes":[{"path":"/","originUrl":"http://localhost:3000"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
 func TestListCloudflareZonesResponse(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
@@ -124,7 +149,7 @@ func TestCreateDomainRequiresZoneIDAndReturnsIt(t *testing.T) {
 	handler := &DomainHandler{domainService: service}
 	engine.POST("/api/domains", handler.createDomain)
 
-	missingZone := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","originUrl":"http://localhost:8080"}`))
+	missingZone := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","routes":[{"path":"/","originUrl":"http://localhost:8080"}]}`))
 	missingZone.Header.Set("Content-Type", "application/json")
 	missingResponse := httptest.NewRecorder()
 	engine.ServeHTTP(missingResponse, missingZone)
@@ -132,7 +157,7 @@ func TestCreateDomainRequiresZoneIDAndReturnsIt(t *testing.T) {
 		t.Fatalf("missing zone status = %d", missingResponse.Code)
 	}
 
-	valid := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","originUrl":"http://localhost:8080","zoneId":"zone-1"}`))
+	valid := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","zoneId":"zone-1","routes":[{"path":"/api","originUrl":"http://localhost:8080","stripPrefix":true},{"path":"/","originUrl":"http://localhost:5173"}]}`))
 	valid.Header.Set("Content-Type", "application/json")
 	validResponse := httptest.NewRecorder()
 	engine.ServeHTTP(validResponse, valid)
@@ -143,7 +168,10 @@ func TestCreateDomainRequiresZoneIDAndReturnsIt(t *testing.T) {
 
 func TestGetAndListDomainsReturnZoneID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	service := &fakeRouteDomainService{domains: []*model.Domain{{ID: "domain-1", CloudflareZoneID: "zone-1"}}}
+	service := &fakeRouteDomainService{domains: []*model.Domain{{
+		ID: "domain-1", CloudflareZoneID: "zone-1",
+		Routes: []model.DomainRoute{{Path: "/api", OriginURL: "http://localhost:8080", StripPrefix: true}},
+	}}}
 	engine := gin.New()
 	handler := &DomainHandler{domainService: service}
 	engine.GET("/api/domains/:id", handler.getDomain)
@@ -153,7 +181,7 @@ func TestGetAndListDomainsReturnZoneID(t *testing.T) {
 		request := httptest.NewRequest(http.MethodGet, path, nil)
 		response := httptest.NewRecorder()
 		engine.ServeHTTP(response, request)
-		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"zoneId":"zone-1"`) {
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"zoneId":"zone-1"`) || !strings.Contains(response.Body.String(), `"path":"/api"`) {
 			t.Fatalf("%s status/body = %d/%s", path, response.Code, response.Body.String())
 		}
 	}
@@ -165,11 +193,82 @@ func TestCreateDomainMapsCloudflareFailureToBadGateway(t *testing.T) {
 	handler := &DomainHandler{domainService: &fakeRouteDomainService{zonesErr: domainservice.ErrCloudflareUnavailable}}
 	engine.POST("/api/domains", handler.createDomain)
 
-	request := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","originUrl":"http://localhost:8080","zoneId":"zone-1"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/domains", bytes.NewBufferString(`{"hostname":"app.example.com","zoneId":"zone-1","routes":[{"path":"/","originUrl":"http://localhost:8080"}]}`))
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+	}
+}
+
+func TestReplaceRoutesAcceptsStripPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeRouteDomainService{replaced: &model.Domain{
+		ID:     "domain-1",
+		Routes: []model.DomainRoute{{Path: "/api", OriginURL: "http://localhost:8080", StripPrefix: true}},
+	}}
+	engine := gin.New()
+	handler := &DomainHandler{domainService: service}
+	engine.PUT("/api/domains/:id/routes", handler.replaceRoutes)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/domains/domain-1/routes", bytes.NewBufferString(`{"routes":[{"path":"/api","originUrl":"http://localhost:8080","stripPrefix":true},{"path":"/","originUrl":"http://localhost:3000"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"stripPrefix":true`) {
+		t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+	}
+}
+
+func TestAuthenticatedReplaceRoutesEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	service := &fakeRouteDomainService{replaced: &model.Domain{ID: "domain-1", Routes: []model.DomainRoute{{Path: "/", OriginURL: "http://localhost:3000"}}}}
+	engine := gin.New()
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: &DomainHandler{domainService: service},
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
+	route.Setup()
+
+	request := httptest.NewRequest(http.MethodPut, "/api/domains/domain-1/routes", bytes.NewBufferString(`{"routes":[{"path":"/","originUrl":"http://localhost:3000"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer test-token")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"path":"/"`) {
+		t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
+	}
+}
+
+func TestReplaceRoutesRejectsMissingRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	handler := &DomainHandler{domainService: &fakeRouteDomainService{}}
+	engine.PUT("/api/domains/:id/routes", handler.replaceRoutes)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/domains/domain-1/routes", bytes.NewBufferString(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", response.Code)
+	}
+}
+
+func TestReplaceRoutesHidesInternalError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	handler := &DomainHandler{domainService: &fakeRouteDomainService{zonesErr: errors.New("database password leaked")}}
+	engine.PUT("/api/domains/:id/routes", handler.replaceRoutes)
+
+	request := httptest.NewRequest(http.MethodPut, "/api/domains/domain-1/routes", bytes.NewBufferString(`{"routes":[{"path":"/","originUrl":"http://localhost:3000"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), "password") {
 		t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
 	}
 }

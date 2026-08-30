@@ -80,14 +80,29 @@ func (c *client) CreateTunnel(ctx context.Context, name string) (TunnelInfo, err
 	return TunnelInfo{TunnelID: tunnel.ID, Token: *token}, nil
 }
 
-func (c *client) PutIngressConfig(ctx context.Context, tunnelID, hostname, originURL string) error {
+func (c *client) PutIngressConfig(ctx context.Context, tunnelID, hostname string, rules []IngressRule) error {
+	if len(rules) == 0 {
+		return fmt.Errorf("cloudflare: put ingress config: at least one application rule is required")
+	}
+	ingress := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0, len(rules)+1)
+	for _, rule := range rules {
+		item := zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
+			Hostname: cloudflareapi.F(hostname),
+			Service:  cloudflareapi.F(rule.Service),
+		}
+		if rule.Path != "" {
+			item.Path = cloudflareapi.F(rule.Path)
+		}
+		ingress = append(ingress, item)
+	}
+	ingress = append(ingress, zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
+		Service: cloudflareapi.F("http_status:404"),
+	})
+
 	_, err := c.api.ZeroTrust.Tunnels.Cloudflared.Configurations.Update(ctx, tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 		AccountID: cloudflareapi.F(c.accountID),
 		Config: cloudflareapi.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
-			Ingress: cloudflareapi.F([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
-				{Hostname: cloudflareapi.F(hostname), Service: cloudflareapi.F(originURL)},
-				{Service: cloudflareapi.F("http_status:404")},
-			}),
+			Ingress: cloudflareapi.F(ingress),
 		}),
 	})
 	if err != nil {

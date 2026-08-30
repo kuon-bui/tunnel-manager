@@ -12,10 +12,10 @@ import (
 
 	"tunnelmanager/internal/model"
 	"tunnelmanager/internal/pkg/cloudflare"
-	"tunnelmanager/internal/pkg/common"
 	"tunnelmanager/internal/pkg/config"
 	"tunnelmanager/internal/pkg/constant"
 	"tunnelmanager/internal/pkg/crypto"
+	"tunnelmanager/internal/pkg/ingressproxy"
 	"tunnelmanager/internal/pkg/logbuf"
 	"tunnelmanager/internal/pkg/portalloc"
 	"tunnelmanager/internal/pkg/process"
@@ -29,14 +29,16 @@ import (
 var (
 	ErrInvalidZone           = errors.New("domainservice: invalid Cloudflare zone")
 	ErrCloudflareUnavailable = errors.New("domainservice: Cloudflare unavailable")
+	ErrInvalidRoutes         = errors.New("domainservice: invalid routes")
 )
 
 type DomainService interface {
-	CreateDomain(ctx context.Context, hostname, originURL, zoneID string) (*model.Domain, error)
+	CreateDomain(ctx context.Context, hostname, zoneID string, routes []domainrequest.RouteInput) (*model.Domain, error)
 	ListCloudflareZones(ctx context.Context) ([]model.CloudflareZone, error)
 	ListDomains(ctx context.Context, req domainrequest.ListDomainRequest) ([]*model.Domain, string, error)
 	GetDomain(ctx context.Context, id string) (*model.Domain, error)
 	UpdateOrigin(ctx context.Context, id, originURL string) (*model.Domain, error)
+	ReplaceRoutes(ctx context.Context, id string, routes []domainrequest.RouteInput) (*model.Domain, error)
 	DeleteDomain(ctx context.Context, id string) error
 	StopDomain(ctx context.Context, id string) error
 	RestartDomain(ctx context.Context, id string) error
@@ -57,12 +59,21 @@ type domainService struct {
 	encKey        []byte
 	logDir        string
 	metricsClient *http.Client
+	proxy         ingressproxy.Proxy
 
 	mu   sync.Mutex
 	logs map[string]*logbuf.Buffer
 
 	subscriberMu sync.Mutex
 	subscribers  map[chan struct{}]struct{}
+
+	mutationMu    sync.Mutex
+	mutationLocks map[string]*domainMutationLock
+}
+
+type domainMutationLock struct {
+	mu   sync.Mutex
+	refs int
 }
 
 type DomainServiceParams struct {
@@ -73,6 +84,7 @@ type DomainServiceParams struct {
 	CF         cloudflare.CloudflareClient
 	Supervisor process.ProcessSupervisor
 	Ports      *portalloc.Allocator
+	Proxy      ingressproxy.Proxy
 }
 
 func NewDomainService(
@@ -87,11 +99,35 @@ func NewDomainService(
 		encKey:        params.Cfg.EncryptionKey,
 		logDir:        params.Cfg.LogDir,
 		metricsClient: &http.Client{Timeout: 3 * time.Second},
+		proxy:         params.Proxy,
 		logs:          make(map[string]*logbuf.Buffer),
 		subscribers:   make(map[chan struct{}]struct{}),
+		mutationLocks: make(map[string]*domainMutationLock),
 	}
 	processSupervisor.SetEventHandler(service.HandleSupervisorEvent)
 	return service
+}
+
+func (s *domainService) lockDomain(id string) func() {
+	s.mutationMu.Lock()
+	lock := s.mutationLocks[id]
+	if lock == nil {
+		lock = &domainMutationLock{}
+		s.mutationLocks[id] = lock
+	}
+	lock.refs++
+	s.mutationMu.Unlock()
+
+	lock.mu.Lock()
+	return func() {
+		lock.mu.Unlock()
+		s.mutationMu.Lock()
+		lock.refs--
+		if lock.refs == 0 {
+			delete(s.mutationLocks, id)
+		}
+		s.mutationMu.Unlock()
+	}
 }
 
 func (s *domainService) Logs(ctx context.Context, id string) ([]string, error) {
@@ -168,12 +204,31 @@ func (s *domainService) ProxyMetrics(ctx context.Context, id string, w http.Resp
 }
 
 func (s *domainService) Reconcile(ctx context.Context) error {
-	active, _, err := s.repo.List(ctx, domainrequest.ListDomainRequest{
-		Pagination: common.Pagination{PageSize: -1},
-		Status:     constant.StatusActive,
-	})
+	all, err := s.repo.ListAll(ctx)
 	if err != nil {
 		return err
+	}
+	ids := make([]string, 0, len(all))
+	for _, domain := range all {
+		ids = append(ids, domain.ID)
+	}
+	routesByDomain, err := s.repo.ListRoutesByDomainIDs(ctx, ids)
+	if err != nil {
+		return err
+	}
+	active := make([]*model.Domain, 0, len(all))
+	for _, domain := range all {
+		routes, err := normalizePersistedRoutes(domain.ID, routesByDomain[domain.ID])
+		if err != nil {
+			return fmt.Errorf("service: validate routes for %s: %w", domain.ID, err)
+		}
+		domain.Routes = routes
+		if err := s.proxy.CommitDomain(domain.ID, domain.Hostname, domain.Routes); err != nil {
+			return fmt.Errorf("service: hydrate ingress proxy for %s: %w", domain.ID, err)
+		}
+		if domain.Status == constant.StatusActive {
+			active = append(active, domain)
+		}
 	}
 
 	p := pool.NewWithResults[*model.Domain]()

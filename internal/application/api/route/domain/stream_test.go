@@ -138,7 +138,10 @@ func openDomainStream(t *testing.T, service *fakeDomainService, rawQuery string)
 func TestStreamDomainsSendsInitialFilteredSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := &fakeDomainService{
-		domains:   []*model.Domain{{ID: "domain-1", Hostname: "api.example.com"}},
+		domains: []*model.Domain{{
+			ID: "domain-1", Hostname: "api.example.com",
+			Routes: []model.DomainRoute{{Path: "/api", OriginURL: "http://localhost:8080", StripPrefix: true}},
+		}},
 		updates:   make(chan struct{}, 1),
 		cancelled: make(chan struct{}),
 	}
@@ -151,7 +154,7 @@ func TestStreamDomainsSendsInitialFilteredSnapshot(t *testing.T) {
 		t.Fatalf("stream headers = %#v", resp.Header)
 	}
 	event := readSSEEvent(t, reader)
-	if event.name != "domains" || !strings.Contains(event.data, `"id":"domain-1"`) {
+	if event.name != "domains" || !strings.Contains(event.data, `"id":"domain-1"`) || !strings.Contains(event.data, `"stripPrefix":true`) {
 		t.Fatalf("event = %#v", event)
 	}
 	req := service.request()
