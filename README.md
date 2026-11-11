@@ -53,8 +53,8 @@ Prepare these dependencies before starting the service:
 - The `cloudflared` binary on `PATH`, unless you use the provided `Dockerfile`
 
 If you plan to use `make migrate`, make sure the `goose` CLI is installed and
-available on `PATH`. The repository provides migration files and Make targets,
-but it does not provide a separate migration container.
+available on `PATH`. The container image bundles `goose` and applies pending
+migrations on startup, so container deployments do not need it on the host.
 
 ## Configuration
 
@@ -152,14 +152,25 @@ requires the same environment variables and access to `cloudflared`.
 
 ### Container Deployment
 
-The provided `Dockerfile` builds the Go service and installs `cloudflared`
-inside the image.
+The provided `Dockerfile` builds the Go service and bundles `cloudflared`,
+`goose`, and the migration files. It supports `amd64` and `arm64`; the
+matching `cloudflared` binary is chosen from the build's target architecture.
+
+On startup, `docker-entrypoint.sh` creates the `DB_PATH` and `LOG_DIR`
+directories, runs `goose up -allow-missing` against `DB_PATH`, and only then
+starts the server. A failed migration stops the container instead of starting
+against an incompatible schema. Migration `00004` is still destructive: read
+[Multi-Zone Migration](#multi-zone-migration) before starting a new image on an
+older database.
 
 Build the image:
 
 ```bash
 docker build -t tunnel-manager-backend .
 ```
+
+The Go build needs well over 1 GB of memory. On small hosts, build elsewhere
+and move the image with `docker save | docker load`.
 
 Run the container with an explicit writable data mount and container-friendly
 paths:
