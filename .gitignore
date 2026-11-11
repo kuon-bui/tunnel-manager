@@ -11,3 +11,6 @@ data/*
 # Local env for backend workflows
 .env
 another-service.yml
+
+# rewrite-origins backups
+origins-backup-*.json
