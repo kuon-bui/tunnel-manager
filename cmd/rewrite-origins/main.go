@@ -1,12 +1,13 @@
-// Command rewrite-origins rewrites the host part of every managed domain's
-// origin URL through the tunnel-manager HTTP API.
+// Command rewrite-origins rewrites the host part of managed domains' route
+// origin URLs through the tunnel-manager HTTP API.
 //
 // Typical use when moving the backend to another machine while origins stay
 // on the old one: replace localhost origins with the old machine's LAN IP.
+// Exclude domains whose origin is the backend itself, since it moves too.
 //
-//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://pi.local:8080 -to 192.168.1.50
-//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://pi.local:8080 -to 192.168.1.50 -apply
-//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://pi.local:8080 -restore origins-backup-....json
+//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://10.10.1.10:8080 -to 10.10.1.10 -exclude api.example.com
+//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://10.10.1.10:8080 -to 10.10.1.10 -exclude api.example.com -apply
+//	TM_PASSWORD=... go run ./cmd/rewrite-origins -api http://10.10.1.10:8080 -restore origins-backup-....json -apply
 //
 // Without -apply it only prints the planned changes.
 package main
@@ -26,54 +27,70 @@ import (
 	"time"
 )
 
-type domain struct {
-	ID        string `json:"id"`
-	Hostname  string `json:"hostname"`
-	OriginURL string `json:"originUrl"`
+type route struct {
+	Path        string `json:"path"`
+	OriginURL   string `json:"originUrl"`
+	StripPrefix bool   `json:"stripPrefix"`
 }
 
+type domain struct {
+	ID        string  `json:"id"`
+	Hostname  string  `json:"hostname"`
+	OriginURL string  `json:"originUrl"`
+	Routes    []route `json:"routes"`
+}
+
+// change holds the full route list before and after the rewrite, because the
+// routes endpoint replaces every route of a domain at once.
 type change struct {
-	ID       string `json:"id"`
-	Hostname string `json:"hostname"`
-	Old      string `json:"old"`
-	New      string `json:"new"`
+	ID       string  `json:"id"`
+	Hostname string  `json:"hostname"`
+	Old      []route `json:"old"`
+	New      []route `json:"new"`
+}
+
+type options struct {
+	api, user, from, to, only, exclude, restore string
+	apply                                       bool
 }
 
 func main() {
-	api := flag.String("api", "http://localhost:8080", "backend base URL")
-	user := flag.String("user", "admin", "admin username (password from TM_PASSWORD)")
-	from := flag.String("from", "localhost,127.0.0.1,::1,0.0.0.0", "comma-separated origin hosts to replace")
-	to := flag.String("to", "", "new origin host, e.g. the old machine's LAN IP")
-	only := flag.String("only", "", "comma-separated public hostnames to limit the change to")
-	apply := flag.Bool("apply", false, "send the updates (default: dry run)")
-	restore := flag.String("restore", "", "backup file to restore old origin URLs from")
+	var o options
+	flag.StringVar(&o.api, "api", "http://localhost:8080", "backend base URL")
+	flag.StringVar(&o.user, "user", "admin", "admin username (password from TM_PASSWORD, or set TM_TOKEN)")
+	flag.StringVar(&o.from, "from", "localhost,127.0.0.1,::1,0.0.0.0", "comma-separated origin hosts to replace")
+	flag.StringVar(&o.to, "to", "", "new origin host, e.g. the old machine's LAN IP")
+	flag.StringVar(&o.only, "only", "", "comma-separated public hostnames to limit the change to")
+	flag.StringVar(&o.exclude, "exclude", "", "comma-separated public hostnames to leave untouched")
+	flag.BoolVar(&o.apply, "apply", false, "send the updates (default: dry run)")
+	flag.StringVar(&o.restore, "restore", "", "backup file to restore old routes from")
 	flag.Parse()
 
-	if err := run(*api, *user, *from, *to, *only, *apply, *restore); err != nil {
+	if err := run(o); err != nil {
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
 }
 
-func run(api, user, from, to, only string, apply bool, restore string) error {
-	if restore == "" && to == "" {
+func run(o options) error {
+	if o.restore == "" && o.to == "" {
 		return errors.New("-to is required (or use -restore)")
 	}
-	c := &client{base: strings.TrimRight(api, "/"), http: &http.Client{Timeout: 30 * time.Second}}
+	c := &client{base: strings.TrimRight(o.api, "/"), http: &http.Client{Timeout: 30 * time.Second}}
 	c.token = os.Getenv("TM_TOKEN")
 	if c.token == "" {
 		password := os.Getenv("TM_PASSWORD")
 		if password == "" {
 			return errors.New("set TM_PASSWORD (or TM_TOKEN)")
 		}
-		if err := c.login(user, password); err != nil {
+		if err := c.login(o.user, password); err != nil {
 			return err
 		}
 	}
 
 	var changes []change
-	if restore != "" {
-		backup, err := readBackup(restore)
+	if o.restore != "" {
+		backup, err := readBackup(o.restore)
 		if err != nil {
 			return err
 		}
@@ -85,7 +102,7 @@ func run(api, user, from, to, only string, apply bool, restore string) error {
 		if err != nil {
 			return err
 		}
-		changes, err = planChanges(domains, splitSet(from), to, splitSet(only))
+		changes, err = planChanges(domains, splitSet(o.from), o.to, splitSet(o.only), splitSet(o.exclude))
 		if err != nil {
 			return err
 		}
@@ -96,14 +113,19 @@ func run(api, user, from, to, only string, apply bool, restore string) error {
 		return nil
 	}
 	for _, ch := range changes {
-		fmt.Printf("%-40s %s -> %s\n", ch.Hostname, ch.Old, ch.New)
+		fmt.Println(ch.Hostname)
+		for i := range ch.New {
+			if ch.Old[i].OriginURL != ch.New[i].OriginURL {
+				fmt.Printf("  %-12s %s -> %s\n", ch.New[i].Path, ch.Old[i].OriginURL, ch.New[i].OriginURL)
+			}
+		}
 	}
-	if !apply {
-		fmt.Printf("\ndry run: %d change(s); add -apply to send them\n", len(changes))
+	if !o.apply {
+		fmt.Printf("\ndry run: %d domain(s); add -apply to send them\n", len(changes))
 		return nil
 	}
 
-	if restore == "" {
+	if o.restore == "" {
 		name := fmt.Sprintf("origins-backup-%s.json", time.Now().Format("20060102-150405"))
 		if err := writeBackup(name, changes); err != nil {
 			return err
@@ -113,7 +135,7 @@ func run(api, user, from, to, only string, apply bool, restore string) error {
 
 	failed := 0
 	for _, ch := range changes {
-		if err := c.updateOrigin(ch.ID, ch.New); err != nil {
+		if err := c.replaceRoutes(ch.ID, ch.New); err != nil {
 			failed++
 			fmt.Printf("FAIL %s: %v\n", ch.Hostname, err)
 			continue
@@ -126,20 +148,33 @@ func run(api, user, from, to, only string, apply bool, restore string) error {
 	return nil
 }
 
-// planChanges lists the domains whose origin host is in from, with the host
-// swapped for to. Scheme, port, path and query are kept.
-func planChanges(domains []domain, from map[string]bool, to string, only map[string]bool) ([]change, error) {
+// planChanges returns the domains with at least one route whose origin host
+// is in from, with those hosts swapped for to. Scheme, port, path, query and
+// the other route fields are kept.
+func planChanges(domains []domain, from map[string]bool, to string, only, exclude map[string]bool) ([]change, error) {
 	var changes []change
 	for _, d := range domains {
-		if len(only) > 0 && !only[strings.ToLower(d.Hostname)] {
+		name := strings.ToLower(d.Hostname)
+		if (len(only) > 0 && !only[name]) || exclude[name] {
 			continue
 		}
-		newURL, ok, err := rewriteHost(d.OriginURL, from, to)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", d.Hostname, err)
+		old := d.Routes
+		if len(old) == 0 {
+			old = []route{{Path: "/", OriginURL: d.OriginURL}}
 		}
-		if ok {
-			changes = append(changes, change{ID: d.ID, Hostname: d.Hostname, Old: d.OriginURL, New: newURL})
+		updated := make([]route, len(old))
+		changed := false
+		for i, r := range old {
+			newURL, ok, err := rewriteHost(r.OriginURL, from, to)
+			if err != nil {
+				return nil, fmt.Errorf("%s %s: %w", d.Hostname, r.Path, err)
+			}
+			updated[i] = r
+			updated[i].OriginURL = newURL
+			changed = changed || ok
+		}
+		if changed {
+			changes = append(changes, change{ID: d.ID, Hostname: d.Hostname, Old: old, New: updated})
 		}
 	}
 	return changes, nil
@@ -190,6 +225,11 @@ func readBackup(name string) ([]change, error) {
 	if err := json.Unmarshal(data, &changes); err != nil {
 		return nil, fmt.Errorf("read backup %s: %w", name, err)
 	}
+	for _, ch := range changes {
+		if len(ch.Old) == 0 || len(ch.Old) != len(ch.New) {
+			return nil, fmt.Errorf("read backup %s: %s has no usable routes (older backup format?)", name, ch.Hostname)
+		}
+	}
 	return changes, nil
 }
 
@@ -234,8 +274,8 @@ func (c *client) listDomains() ([]domain, error) {
 	}
 }
 
-func (c *client) updateOrigin(id, originURL string) error {
-	return c.do(http.MethodPut, "/api/domains/"+url.PathEscape(id), map[string]string{"originUrl": originURL}, nil)
+func (c *client) replaceRoutes(id string, routes []route) error {
+	return c.do(http.MethodPut, "/api/domains/"+url.PathEscape(id)+"/routes", map[string]any{"routes": routes}, nil)
 }
 
 func (c *client) do(method, path string, body, out any) error {
