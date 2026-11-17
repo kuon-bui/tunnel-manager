@@ -272,3 +272,58 @@ func TestReplaceRoutesHidesInternalError(t *testing.T) {
 		t.Fatalf("status/body = %d/%s", response.Code, response.Body.String())
 	}
 }
+
+type fakeStartDomainService struct {
+	domainservice.DomainService
+	err error
+}
+
+func (f *fakeStartDomainService) StartDomain(context.Context, string) error {
+	return f.err
+}
+
+func TestStartDomainMapsServiceResult(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, test := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{name: "started", want: http.StatusNoContent},
+		{name: "already running", err: domainservice.ErrAlreadyRunning, want: http.StatusConflict},
+		{name: "missing", err: model.ErrNotFound, want: http.StatusNotFound},
+		{name: "internal", err: errors.New("boom"), want: http.StatusInternalServerError},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine := gin.New()
+			handler := &DomainHandler{domainService: &fakeStartDomainService{err: test.err}}
+			engine.POST("/api/domains/:id/start", handler.startDomain)
+
+			request := httptest.NewRequest(http.MethodPost, "/api/domains/domain-1/start", nil)
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
+func TestStartDomainRequiresJWT(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	route := &DomainRoute{
+		Engine:        engine,
+		domainHandler: &DomainHandler{domainService: &fakeStartDomainService{}},
+		authService:   &fakeRouteAuthService{},
+		cfg:           config.Config{},
+	}
+	route.Setup()
+
+	request := httptest.NewRequest(http.MethodPost, "/api/domains/domain-1/start", nil)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", response.Code)
+	}
+}

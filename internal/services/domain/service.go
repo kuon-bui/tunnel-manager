@@ -30,6 +30,7 @@ var (
 	ErrInvalidZone           = errors.New("domainservice: invalid Cloudflare zone")
 	ErrCloudflareUnavailable = errors.New("domainservice: Cloudflare unavailable")
 	ErrInvalidRoutes         = errors.New("domainservice: invalid routes")
+	ErrAlreadyRunning        = errors.New("domainservice: tunnel process already running")
 )
 
 type DomainService interface {
@@ -41,6 +42,7 @@ type DomainService interface {
 	ReplaceRoutes(ctx context.Context, id string, routes []domainrequest.RouteInput) (*model.Domain, error)
 	DeleteDomain(ctx context.Context, id string) error
 	StopDomain(ctx context.Context, id string) error
+	StartDomain(ctx context.Context, id string) error
 	RestartDomain(ctx context.Context, id string) error
 	Logs(ctx context.Context, id string) ([]string, error)
 	SubscribeLogs(ctx context.Context, id string) ([]string, <-chan struct{}, func(), error)

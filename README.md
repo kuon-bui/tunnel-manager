@@ -208,6 +208,7 @@ The service exposes these routes:
 | `PUT` | `/api/domains/:id` | Deprecated compatibility endpoint that updates only the `/` route origin. |
 | `DELETE` | `/api/domains/:id` | Delete a managed domain and its Cloudflare resources. |
 | `POST` | `/api/domains/:id/stop` | Stop the managed `cloudflared` process. |
+| `POST` | `/api/domains/:id/start` | Start the `cloudflared` process again after a stop or error. Returns `409` if it is still running. |
 | `POST` | `/api/domains/:id/restart` | Restart the managed `cloudflared` process. |
 | `GET` | `/api/domains/:id/logs` | Return buffered log lines for a managed domain. |
 | `GET` | `/api/domains/:id/metrics` | Proxy the managed domain's local Prometheus metrics endpoint. |
