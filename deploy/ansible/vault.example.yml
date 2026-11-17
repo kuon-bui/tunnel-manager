@@ -1,0 +1,15 @@
+# Template for group_vars/all/vault.yml. Never commit the filled-in file unencrypted: the repo is public.
+# Create the real file with `ansible-vault create group_vars/all/vault.yml` (see README, "Automated Deployment")
+# and paste these keys with production values.
+
+vault_cloudflare_api_token: CHANGE_ME
+vault_cloudflare_account_id: CHANGE_ME
+
+# Must stay identical to the key the database was written with (hex; openssl rand -hex 32 for a new install)
+vault_encryption_key: CHANGE_ME
+
+vault_admin_password: CHANGE_ME # openssl rand -base64 24
+vault_jwt_secret: CHANGE_ME # openssl rand -base64 48
+
+# Only needed if the Docker Hub repository is private (read-only access token)
+vault_dockerhub_pull_token: ""

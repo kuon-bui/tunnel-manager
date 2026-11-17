@@ -1,0 +1,6 @@
+all:
+  hosts:
+    production:
+      # Tailscale MagicDNS name of the backend server (tx); must match the entry in the VPS_SSH_KNOWN_HOSTS secret
+      ansible_host: tx.griffin-pantone.ts.net
+      ansible_user: deploy

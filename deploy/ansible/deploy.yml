@@ -1,0 +1,177 @@
+- name: Deploy tunnel-manager backend
+  hosts: production
+  gather_facts: false
+  module_defaults:
+    ansible.builtin.command:
+      chdir: "{{ app_dir }}"
+    ansible.builtin.shell:
+      chdir: "{{ app_dir }}"
+  vars:
+    required_settings:
+      - ansible_host
+      - dockerhub_username
+      - vault_cloudflare_api_token
+      - vault_cloudflare_account_id
+      - vault_encryption_key
+      - vault_admin_password
+      - vault_jwt_secret
+
+  tasks:
+    - name: Check app_version
+      ansible.builtin.assert:
+        that: app_version is defined and app_version is match('^[0-9]+\.[0-9]+\.[0-9]+$')
+        fail_msg: "Pass the release to deploy: -e app_version=X.Y.Z"
+        quiet: true
+
+    - name: Check settings are filled in
+      ansible.builtin.assert:
+        that:
+          - lookup('ansible.builtin.vars', item, default='') | length > 0
+          - "'CHANGE_ME' not in lookup('ansible.builtin.vars', item, default='')"
+        fail_msg: "{{ item }} is missing or still CHANGE_ME (inventory.yml, group_vars/all/main.yml, vault.yml or the DOCKERHUB_USERNAME env var)"
+        quiet: true
+      # Items are variable names, never values, so this is safe to log
+      loop: "{{ required_settings }}"
+
+    - name: Wait for SSH over Tailscale
+      ansible.builtin.wait_for_connection:
+        timeout: 180
+
+    - name: Create data directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0750"
+      loop:
+        - "{{ data_dir }}"
+        - "{{ data_dir }}/logs"
+        - "{{ backup_dir }}"
+
+    - name: Write backend.env
+      ansible.builtin.template:
+        src: backend.env.j2
+        dest: "{{ app_dir }}/backend.env"
+        mode: "0600"
+      no_log: true
+
+    - name: Write compose.yml
+      ansible.builtin.template:
+        src: compose.yml.j2
+        dest: "{{ app_dir }}/compose.yml"
+        mode: "0644"
+
+    - name: Log in to Docker Hub
+      ansible.builtin.command:
+        argv: [docker, login, --username, "{{ dockerhub_username }}", --password-stdin]
+        stdin: "{{ vault_dockerhub_pull_token }}"
+      when: vault_dockerhub_pull_token | default('') | length > 0
+      changed_when: false
+      no_log: true
+
+    # Pull before stopping anything, so a missing image never causes downtime
+    - name: Pull backend {{ app_version }}
+      ansible.builtin.command:
+        argv: [docker, compose, pull, backend]
+      changed_when: false
+
+    - name: Check for an existing database
+      ansible.builtin.stat:
+        path: "{{ data_dir }}/tunnel-manager.db"
+      register: current_db
+
+    - name: Check for the legacy data volume
+      ansible.builtin.command:
+        argv: [docker, volume, inspect, "{{ legacy_volume }}"]
+      register: legacy_volume_check
+      changed_when: false
+      failed_when: false
+      when: not current_db.stat.exists
+
+    # The running container keeps serving until this point; from here until the
+    # new one is healthy every managed tunnel is down
+    - name: Stop backend
+      ansible.builtin.command:
+        argv: [docker, compose, stop, backend]
+      register: backend_stop
+      changed_when: backend_stop.stderr is search('Stopped')
+
+    - name: Adopt data from the legacy volume (first deploy only)
+      when:
+        - not current_db.stat.exists
+        - legacy_volume_check.rc | default(1) == 0
+      block:
+        - name: Copy legacy volume into {{ data_dir }}
+          ansible.builtin.command:
+            argv:
+              - docker
+              - run
+              - --rm
+              - --user
+              - "0:0"
+              - --entrypoint
+              - sh
+              - --volume
+              - "{{ legacy_volume }}:/from:ro"
+              - --volume
+              - "{{ data_dir }}:/to"
+              - "{{ app_image }}:{{ app_version }}"
+              - -c
+              - cp -a /from/. /to/ && chown -R {{ app_uid }}:{{ app_gid }} /to
+
+        # Compose would otherwise see two project files in app_dir
+        - name: Retire the legacy compose file
+          ansible.builtin.command:
+            argv: [mv, "{{ legacy_compose_file }}", "{{ legacy_compose_file }}.legacy"]
+            removes: "{{ legacy_compose_file }}"
+
+    - name: Back up the database
+      ansible.builtin.shell: |
+        set -eu
+        [ -f data/tunnel-manager.db ] || exit 0
+        backup="data/backups/tunnel-manager-$(date -u +%Y%m%dT%H%M%SZ)-before-{{ app_version }}.db"
+        cp -p data/tunnel-manager.db "$backup"
+        echo "$backup"
+        ls -1t data/backups/tunnel-manager-*.db | tail -n +{{ backups_to_keep + 1 }} | xargs -r rm -f
+      register: backup
+      changed_when: backup.stdout | length > 0
+
+    - name: Migrate and start backend {{ app_version }}
+      block:
+        - name: Apply database migrations
+          ansible.builtin.command:
+            argv: [docker, compose, run, --rm, --no-deps, backend, migrate]
+          register: migrate
+          changed_when: "'no migrations to run' not in (migrate.stdout + migrate.stderr)"
+
+        - name: Start backend and wait until healthy
+          ansible.builtin.command:
+            argv: [docker, compose, up, --detach, --wait, --wait-timeout, "180", --remove-orphans, backend]
+          register: backend_up
+          changed_when: backend_up.stderr is search('Created|Recreated|Started')
+      rescue:
+        - name: Collect backend logs
+          ansible.builtin.command:
+            argv: [docker, compose, logs, --no-color, --tail, "100", backend]
+          register: backend_logs
+          changed_when: false
+          failed_when: false
+
+        - name: Show migration and backend output
+          ansible.builtin.debug:
+            msg:
+              - "{{ migrate.stderr_lines | default([]) }}"
+              - "{{ backend_logs.stdout_lines | default([]) }}"
+
+        - name: Fail deploy
+          ansible.builtin.fail:
+            msg: >-
+              Backend {{ app_version }} did not migrate or become healthy, see output above.
+              Database backup: {{ app_dir }}/{{ backup.stdout | default('(none)') }}.
+              To roll back, run the Deploy workflow with the previous version and, if a
+              migration ran, restore that backup over {{ data_dir }}/tunnel-manager.db first.
+
+    - name: Remove unused images
+      ansible.builtin.command:
+        argv: [docker, image, prune, --force]
+      register: prune
+      changed_when: "'Total reclaimed space: 0B' not in prune.stdout"

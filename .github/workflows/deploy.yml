@@ -1,0 +1,67 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Image version to deploy (X.Y.Z)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version to deploy (X.Y.Z), e.g. 0.2.0 — also used for rollbacks
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: deploy/ansible
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Set up SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.VPS_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.VPS_SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$RUNNER_TEMP/deploy_key"
+          chmod 600 "$RUNNER_TEMP/deploy_key"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Install Ansible
+        run: pipx install ansible-core==2.21.5
+
+      - name: Deploy ${{ inputs.version }}
+        env:
+          VERSION: ${{ inputs.version }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          VAULT_PASSWORD: ${{ secrets.ANSIBLE_VAULT_PASSWORD }}
+          ANSIBLE_PRIVATE_KEY_FILE: ${{ runner.temp }}/deploy_key
+          ANSIBLE_FORCE_COLOR: "1"
+        run: |
+          printf '%s' "$VAULT_PASSWORD" > "$RUNNER_TEMP/vault_pass"
+          ansible-playbook deploy.yml \
+            --vault-password-file "$RUNNER_TEMP/vault_pass" \
+            -e app_version="$VERSION"
+
+      - name: Clean up credentials
+        if: always()
+        run: rm -f "$RUNNER_TEMP/deploy_key" "$RUNNER_TEMP/vault_pass"

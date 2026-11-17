@@ -1,0 +1,38 @@
+app_dir: /opt/tunnel-manager
+# Bind-mounted to /data in the container: SQLite database, cloudflared logs, backups
+data_dir: "{{ app_dir }}/data"
+backup_dir: "{{ data_dir }}/backups"
+backups_to_keep: 10
+
+# Must match APP_UID/APP_GID in the Dockerfile and the `deploy` user created by
+# deploy/bootstrap-server.sh, so the container and the deploy user share file ownership
+app_uid: 10001
+app_gid: 10001
+
+# Same DOCKERHUB_USERNAME secret the docker job pushes with; deploy.yml exports it to Ansible
+dockerhub_username: "{{ lookup('ansible.builtin.env', 'DOCKERHUB_USERNAME') }}"
+app_image: "{{ dockerhub_username }}/tunnel-manager"
+
+# Before this playbook the stack kept its data in a named volume; the first deploy
+# copies it into data_dir once and leaves the volume in place as a fallback
+legacy_volume: tunnel-manager_tunnel-manager-data
+legacy_compose_file: "{{ app_dir }}/docker-compose.yml"
+
+backend_env:
+  CLOUDFLARE_API_TOKEN: "{{ vault_cloudflare_api_token }}"
+  CLOUDFLARE_ACCOUNT_ID: "{{ vault_cloudflare_account_id }}"
+  # Decrypts the tunnel tokens stored in the database: never rotate it without re-encrypting them
+  ENCRYPTION_KEY: "{{ vault_encryption_key }}"
+  DB_PATH: /data/tunnel-manager.db
+  LOG_DIR: /data/logs
+  HTTP_ADDR: ":8080"
+  METRICS_PORT_RANGE_START: "20500"
+  METRICS_PORT_RANGE_END: "20999"
+  CLOUDFLARED_BINARY: /opt/cloudflared/cloudflared
+  CLOUDFLARED_PROTOCOL: http2
+  CORS_ALLOWED_ORIGIN: https://turnel.kuon.id.vn
+  ADMIN_USERNAME: admin
+  ADMIN_PASSWORD: "{{ vault_admin_password }}"
+  JWT_SECRET: "{{ vault_jwt_secret }}"
+  JWT_TTL: 168h
+  AUTH_COOKIE_SECURE: "false"
