@@ -45,6 +45,7 @@ func (r *DomainRoute) Setup() {
 	g.PUT("/:id/routes", r.domainHandler.replaceRoutes)
 	g.DELETE("/:id", r.domainHandler.deleteDomain)
 	g.POST("/:id/stop", r.domainHandler.stopDomain)
+	g.POST("/:id/start", r.domainHandler.startDomain)
 	g.POST("/:id/restart", r.domainHandler.restartDomain)
 	g.GET("/:id/logs", r.domainHandler.getLogs)
 	g.GET("/:id/metrics", r.domainHandler.getMetrics)

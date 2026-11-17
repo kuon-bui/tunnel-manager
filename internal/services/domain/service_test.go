@@ -175,6 +175,9 @@ func (f *fakeCloudflareClient) DeleteTunnel(_ context.Context, tunnelID string) 
 type fakeProcessSupervisor struct {
 	handler    func(process.ProcessEvent)
 	startCalls int
+	running    bool
+	stopErr    error
+	calls      []string
 }
 
 type fakeIngressProxy struct {
@@ -203,10 +206,19 @@ func (f *fakeIngressProxy) RemoveDomain(string) { f.removed++ }
 
 func (f *fakeProcessSupervisor) Start(string, string, int, io.Writer) error {
 	f.startCalls++
+	f.calls = append(f.calls, "start")
+	return nil
+}
+func (f *fakeProcessSupervisor) StopAndWait(string, time.Duration) error {
+	f.calls = append(f.calls, "stop")
+	if f.stopErr != nil {
+		return f.stopErr
+	}
+	f.running = false
 	return nil
 }
 func (f *fakeProcessSupervisor) Stop(string) error     { return nil }
-func (f *fakeProcessSupervisor) IsRunning(string) bool { return false }
+func (f *fakeProcessSupervisor) IsRunning(string) bool { return f.running }
 func (f *fakeProcessSupervisor) SetEventHandler(handler func(process.ProcessEvent)) {
 	f.handler = handler
 }

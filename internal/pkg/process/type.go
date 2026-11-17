@@ -18,6 +18,18 @@ type managedProcess struct {
 	stopRequested bool
 	restartCount  int
 	stableTimer   *time.Timer
+
+	// stopCh is closed when a stop is requested so a pending restart backoff
+	// is interrupted instead of spawning a new process.
+	stopCh   chan struct{}
+	stopOnce sync.Once
+	// done is closed once supervision has ended and the final event has been
+	// emitted.
+	done chan struct{}
+}
+
+func newManagedProcess() *managedProcess {
+	return &managedProcess{stopCh: make(chan struct{}), done: make(chan struct{})}
 }
 
 type Supervisor struct {
@@ -25,7 +37,6 @@ type Supervisor struct {
 	protocol     constant.CloudflaredProtocol
 	eventHandler func(Event)
 
-	SleepFunc   func(time.Duration)
 	StableAfter time.Duration
 
 	mu    sync.Mutex
@@ -43,6 +54,10 @@ type ProcessEvent struct {
 type ProcessSupervisor interface {
 	Start(domainID, token string, metricsPort int, logWriter io.Writer) error
 	Stop(domainID string) error
+	// StopAndWait stops the process and blocks until it has exited and its
+	// final stopped event has been emitted. If the process has not exited
+	// after grace, it is killed. It is a no-op when nothing is running.
+	StopAndWait(domainID string, grace time.Duration) error
 	IsRunning(domainID string) bool
 	SetEventHandler(handler func(ProcessEvent))
 }

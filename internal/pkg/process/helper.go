@@ -41,8 +41,10 @@ func (s *Supervisor) armStableTimer(mp *managedProcess) {
 	})
 }
 
-// emit sends an event to the event handler if it is set.
+// supervise waits for the process to exit and restarts it with exponential
+// backoff until a stop is requested or the restart budget is exhausted.
 func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWriter io.Writer, mp *managedProcess) {
+	stopped := &Event{DomainID: domainID, Status: constant.StatusStopped}
 	for {
 		waitErr := mp.cmd.Wait()
 
@@ -54,10 +56,7 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 		mp.mu.Unlock()
 
 		if stopRequested {
-			s.mu.Lock()
-			delete(s.procs, domainID)
-			s.mu.Unlock()
-			s.emit(Event{DomainID: domainID, Status: constant.StatusStopped})
+			s.finish(domainID, mp, stopped)
 			return
 		}
 
@@ -67,15 +66,18 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 		mp.mu.Unlock()
 
 		if attempt > maxRestartAttempts {
-			s.mu.Lock()
-			delete(s.procs, domainID)
-			s.mu.Unlock()
-			s.emit(Event{DomainID: domainID, Status: constant.StatusError, RestartCount: maxRestartAttempts, Err: waitErr})
+			s.finish(domainID, mp, &Event{DomainID: domainID, Status: constant.StatusError, RestartCount: maxRestartAttempts, Err: waitErr})
 			return
 		}
 
-		backoff := time.Duration(1<<(attempt-1)) * time.Second
-		s.SleepFunc(backoff)
+		backoff := time.NewTimer(time.Duration(1<<(attempt-1)) * time.Second)
+		select {
+		case <-mp.stopCh:
+			backoff.Stop()
+			s.finish(domainID, mp, stopped)
+			return
+		case <-backoff.C:
+		}
 
 		cmd := s.buildCmd(token, metricsPort, logWriter)
 		if err := cmd.Start(); err != nil {
@@ -83,6 +85,13 @@ func (s *Supervisor) supervise(domainID, token string, metricsPort int, logWrite
 		}
 
 		mp.mu.Lock()
+		if mp.stopRequested {
+			mp.mu.Unlock()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+			s.finish(domainID, mp, stopped)
+			return
+		}
 		mp.cmd = cmd
 		mp.mu.Unlock()
 		s.armStableTimer(mp)
