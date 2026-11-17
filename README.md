@@ -155,13 +155,24 @@ requires the same environment variables and access to `cloudflared`.
 The provided `Dockerfile` builds the Go service and bundles `cloudflared`,
 `goose`, and the migration files. It supports `amd64` and `arm64`; the
 matching `cloudflared` binary is chosen from the build's target architecture.
+By default the newest `cloudflared` release is downloaded at build time; pass
+`--build-arg CLOUDFLARED_VERSION=<version>` to pin one. `cloudflared` keeps its
+automatic updates: it lives in `/opt/cloudflared`, which the runtime user owns,
+so it can replace itself when a new release comes out. An update applied inside
+a running container is lost when the container is recreated, and the next image
+starts from whatever release was newest when it was built.
+
+The container runs as the unprivileged user `app` (UID/GID `10001`). A
+bind-mounted data directory must be writable by that UID, for example
+`sudo chown -R 10001:10001 ./data`.
 
 On startup, `docker-entrypoint.sh` creates the `DB_PATH` and `LOG_DIR`
 directories, runs `goose up -allow-missing` against `DB_PATH`, and only then
 starts the server. A failed migration stops the container instead of starting
-against an incompatible schema. Migration `00004` is still destructive: read
-[Multi-Zone Migration](#multi-zone-migration) before starting a new image on an
-older database.
+against an incompatible schema. Running the image with the argument `migrate`
+applies pending migrations and exits without starting the server. Migration
+`00004` is still destructive: read [Multi-Zone Migration](#multi-zone-migration)
+before starting a new image on an older database.
 
 Build the image:
 
@@ -189,6 +200,100 @@ docker run --rm \
 The image exposes port `8080`. If you deploy in a container, prefer absolute
 paths such as `/data/...` instead of the relative host defaults from
 `.env.example`.
+
+### Automated Deployment
+
+Production runs on the arm64 server `tx` (`tx.griffin-pantone.ts.net` on the
+Tailscale network) and is deployed by GitHub Actions:
+
+1. `ci.yml` runs `go vet`, `go build`, and `go test` on every pull request and
+   push to `main`.
+2. `release.yml` runs release-please on `main`. Conventional commits (`feat:`,
+   `fix:`) accumulate in a release pull request; merging it tags `vX.Y.Z`.
+3. When a release is created, the same workflow builds the `linux/arm64` image
+   natively on an arm runner and pushes `<DOCKERHUB_USERNAME>/tunnel-manager`
+   tagged `X.Y.Z`, `X.Y`, and `latest`. Pull requests only build the image to
+   validate the `Dockerfile`.
+4. `deploy.yml` then joins the tailnet as `tag:ci`, SSHes to `tx` as `deploy`,
+   and runs `deploy/ansible/deploy.yml` with the new version.
+
+The playbook, in `/opt/tunnel-manager` on the server:
+
+- writes `backend.env` (mode `0600`, from the encrypted vault) and `compose.yml`;
+- pulls the image first, so a missing image never stops the running service;
+- stops the backend, copies `data/tunnel-manager.db` to
+  `data/backups/tunnel-manager-<UTC time>-before-<version>.db` (the newest 10
+  are kept), and runs the migrations as their own step
+  (`docker compose run --rm backend migrate`);
+- starts the new container and waits until its healthcheck passes, printing
+  the logs and the backup path if migration or startup fails.
+
+Data lives in the bind mount `/opt/tunnel-manager/data` (database, cloudflared
+logs, backups), owned by `deploy` (UID `10001`, the same UID the container runs
+as). The first deploy copies the data from the older named volume
+`tunnel-manager_tunnel-manager-data` into that directory and renames the old
+`docker-compose.yml` to `docker-compose.yml.legacy`. The volume itself is left
+in place as a fallback.
+
+Every deploy restarts the backend, which stops and restarts every managed
+tunnel for the length of the migration plus startup.
+
+**Rollback:** run the Deploy workflow manually (Actions → Deploy → Run
+workflow) with an earlier version. If the failed release ran a migration,
+first restore its backup from `data/backups/` over `data/tunnel-manager.db`.
+
+#### One-Time Setup
+
+Server, as root (safe to re-run). Creates the `deploy` user with UID/GID
+`10001`, adds it to the `docker` group, authorizes the given SSH public keys,
+and hands it `/opt/tunnel-manager`:
+
+```bash
+ssh root@tx.griffin-pantone.ts.net \
+  "sh -s -- '$(cat ci_deploy.pub)' '$(cat ~/.ssh/id_ed25519.pub)'" \
+  < deploy/bootstrap-server.sh
+```
+
+GitHub repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `DOCKERHUB_USERNAME` | Docker Hub account that owns the image |
+| `DOCKERHUB_TOKEN` | Docker Hub access token with write access |
+| `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET` | Tailscale OAuth client allowed to create `tag:ci` devices |
+| `VPS_SSH_PRIVATE_KEY` | Private key whose public half is in `deploy`'s `authorized_keys` |
+| `VPS_SSH_KNOWN_HOSTS` | `ssh-keyscan tx.griffin-pantone.ts.net` output |
+| `ANSIBLE_VAULT_PASSWORD` | Password of `deploy/ansible/group_vars/all/vault.yml` |
+
+Also required:
+
+- the Tailscale ACL lets `tag:ci` reach `tx` on port 22;
+- Settings → Actions → General → "Allow GitHub Actions to create and approve
+  pull requests" is enabled, so release-please can open its release PR.
+
+Secrets live in `deploy/ansible/group_vars/all/vault.yml`, encrypted with
+Ansible Vault (the repository is public; never commit it decrypted). Its keys
+are listed in `deploy/ansible/vault.example.yml`. Keep the vault password in a
+password manager; locally it can live in the git-ignored
+`deploy/ansible/.vault_pass`. To change a secret:
+
+```bash
+cd deploy/ansible
+ansible-vault edit group_vars/all/vault.yml --vault-password-file .vault_pass
+```
+
+`vault_encryption_key` must stay identical to the key the database was written
+with; changing it makes every stored tunnel token unreadable. Non-secret
+settings (CORS origin, ports, protocol) are in
+`deploy/ansible/group_vars/all/main.yml`.
+
+To deploy by hand from a machine on the tailnet with Ansible installed:
+
+```bash
+cd deploy/ansible
+DOCKERHUB_USERNAME=<user> ansible-playbook deploy.yml \
+  --vault-password-file .vault_pass -e app_version=X.Y.Z
+```
 
 ## HTTP API
 

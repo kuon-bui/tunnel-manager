@@ -1,0 +1,20 @@
+# {{ ansible_managed }}
+name: tunnel-manager
+
+services:
+  backend:
+    image: {{ app_image }}:{{ app_version }}
+    restart: unless-stopped
+    user: "{{ app_uid }}:{{ app_gid }}"
+    env_file: backend.env
+    # Host networking: route origins such as http://localhost:3000 reach services on this machine,
+    # and the cloudflared metrics ports stay on the host's loopback
+    network_mode: host
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-X", "POST", "http://localhost:8080/api/auth/logout"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s

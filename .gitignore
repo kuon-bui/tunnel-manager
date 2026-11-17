@@ -14,3 +14,6 @@ another-service.yml
 
 # rewrite-origins backups
 origins-backup-*.json
+
+# Ansible vault password (keep a copy in your password manager)
+deploy/ansible/.vault_pass

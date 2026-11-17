@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "b39cfae5f36d56c4406737d6ff0019c7ef4219fd",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "package-name": "tunnel-manager",
+      "include-component-in-tag": false,
+      "bump-minor-pre-major": true
+    }
+  }
+}
